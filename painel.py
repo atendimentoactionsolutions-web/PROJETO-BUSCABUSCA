@@ -12,6 +12,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse
 
 from parser_listas import parse_supplier_message
+from price_guardian import validate_product, log_anomaly
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 FORNECEDORES_FILE = os.path.join(BASE_DIR, "fornecedores.json")
@@ -106,13 +107,24 @@ def save_historico(hist):
         json.dump(hist, f, ensure_ascii=False, indent=2)
 
 
-def load_produtos():
+def get_today_str():
+    return time.strftime("%d/%m/%Y")
+
+
+def load_produtos(only_today=True):
     with products_lock:
         if os.path.exists(PRODUTOS_FILE):
             try:
                 with open(PRODUTOS_FILE, "r", encoding="utf-8") as f:
                     data = json.load(f)
                     if isinstance(data, list):
+                        if only_today:
+                            hoje = get_today_str()
+                            # Filtrar apenas produtos do dia corrente (a partir das 06:00)
+                            return [
+                                p for p in data
+                                if p.get("data") == hoje and str(p.get("hora", "00:00:00")) >= "06:00:00"
+                            ]
                         return data
             except Exception:
                 pass
@@ -162,21 +174,34 @@ def identify_supplier(participant_jid, remote_jid, push_name, group_name, msg_te
 def upsert_parsed_products(new_items):
     if not new_items:
         return 0
-    atuais = load_produtos()
-    # Chave única por Data + Fornecedor + Modelo + Capacidade + Cor + Condição para atualizar preço no mesmo dia
+    # Carregar apenas os do dia para que ao virar o dia a lista zere automaticamente
+    hoje = get_today_str()
+    atuais_todos = load_produtos(only_today=False)
+    # Manter somente os produtos de hoje após 06:00
+    atuais = [
+        p for p in atuais_todos
+        if p.get("data") == hoje and str(p.get("hora", "00:00:00")) >= "06:00:00"
+    ]
+    # Chave única por Data + Fornecedor + Modelo + Capacidade + Cor para atualizar preço e condição no mesmo dia
     index_map = {}
     for i, item in enumerate(atuais):
         k = (
             f"{item.get('data')}|{item.get('fornecedor')}|{item.get('modelo')}|"
-            f"{item.get('capacidade')}|{item.get('cor')}|{item.get('condicao')}"
+            f"{item.get('capacidade')}|{item.get('cor')}"
         )
         index_map[k] = i
 
     count = 0
-    for item in new_items:
+    for raw_item in new_items:
+        # Validação estrita pelo Guardião Anti-Erros (Faixas de Sanidade + Outliers)
+        valid, reason, sanitized_item = validate_product(raw_item, atuais)
+        if not valid or not sanitized_item:
+            continue
+
+        item = sanitized_item
         k = (
             f"{item.get('data')}|{item.get('fornecedor')}|{item.get('modelo')}|"
-            f"{item.get('capacidade')}|{item.get('cor')}|{item.get('condicao')}"
+            f"{item.get('capacidade')}|{item.get('cor')}"
         )
         item["id"] = f"{int(time.time() * 1000)}_{random.randint(100, 999)}_{count}"
         if k in index_map:
@@ -192,6 +217,27 @@ def upsert_parsed_products(new_items):
 
     save_produtos(atuais)
     return count
+
+
+def midnight_reset_worker():
+    last_reset_day = ""
+    while True:
+        try:
+            now_str = time.strftime("%H:%M:%S")
+            today_str = get_today_str()
+            # Exatamente na virada da meia-noite (00:00:00 até 00:00:10)
+            if now_str.startswith("00:00") and last_reset_day != today_str:
+                with products_lock:
+                    save_produtos([])
+                add_panel_log("[RESET DIÁRIO] 🕛 MEIA-NOITE! Catálogo de preços zerado para o novo dia.")
+                last_reset_day = today_str
+        except Exception as e:
+            pass
+        time.sleep(5)
+
+
+reset_thread = threading.Thread(target=midnight_reset_worker, daemon=True)
+reset_thread.start()
 
 
 def bridge_get(path):
@@ -247,7 +293,7 @@ def render_message(template, supplier):
 
 
 def campaign_worker():
-    add_panel_log("🚀 Disparo AUTORIZADO pelo usuário! Iniciando fila de envios...")
+    add_panel_log("[INICIO] Disparo AUTORIZADO pelo usuário! Iniciando fila de envios...")
     try:
         while True:
             with state_lock:
@@ -259,7 +305,7 @@ def campaign_worker():
             try:
                 st = bridge_get("/api/status")
                 if st.get("status") != "CONNECTED":
-                    add_panel_log("⚠️ WhatsApp desconectado! Disparo pausado automaticamente.")
+                    add_panel_log("[AVISO] WhatsApp desconectado! Disparo pausado automaticamente.")
                     with state_lock:
                         campaign_state["running"] = False
                         campaign_state["current_supplier"] = None
@@ -285,7 +331,7 @@ def campaign_worker():
                     break
 
             if not proximo:
-                add_panel_log("🎉 Todos os fornecedores pendentes já receberam a mensagem!")
+                add_panel_log("[CONCLUIDO] Todos os fornecedores pendentes já receberam a mensagem!")
                 with state_lock:
                     campaign_state["running"] = False
                     campaign_state["current_supplier"] = None
@@ -311,7 +357,7 @@ def campaign_worker():
                     save_historico(historico)
                     with state_lock:
                         campaign_state["sent_session"] += 1
-                    add_panel_log(f"✅ Enviado para {nome} ({tel})")
+                    add_panel_log(f"[OK] Enviado para {nome} ({tel})")
                 else:
                     historico[tel] = {
                         "nome": nome,
@@ -323,7 +369,7 @@ def campaign_worker():
                     save_historico(historico)
                     with state_lock:
                         campaign_state["errors_session"] += 1
-                    add_panel_log(f"❌ Erro em {nome} ({tel}): {resp.get('error')}")
+                    add_panel_log(f"[ERRO] Erro em {nome} ({tel}): {resp.get('error')}")
             except urllib.error.HTTPError as he:
                 err_txt = he.read().decode("utf-8", errors="ignore")
                 historico[tel] = {
@@ -336,11 +382,11 @@ def campaign_worker():
                 save_historico(historico)
                 with state_lock:
                     campaign_state["errors_session"] += 1
-                add_panel_log(f"❌ Falha HTTP em {nome} ({tel}): {err_txt}")
+                add_panel_log(f"[ERRO] Falha HTTP em {nome} ({tel}): {err_txt}")
             except Exception as e:
                 with state_lock:
                     campaign_state["errors_session"] += 1
-                add_panel_log(f"❌ Exceção em {nome} ({tel}): {e}")
+                add_panel_log(f"[ERRO] Exceção em {nome} ({tel}): {e}")
 
             d_min = max(2, int(cfg.get("delay_min", 8)))
             d_max = max(d_min, int(cfg.get("delay_max", 15)))
@@ -353,7 +399,7 @@ def campaign_worker():
                         break
                 time.sleep(0.5)
 
-        add_panel_log("⏸️ Disparo pausado pelo usuário.")
+        add_panel_log("[PAUSA] Disparo pausado pelo usuário.")
     finally:
         with state_lock:
             campaign_state["running"] = False
@@ -654,12 +700,12 @@ BUSCADOR_HTML = """<!DOCTYPE html>
 <body>
   <nav class="navbar">
     <div class="brand">
-      <span>🔍 Buscador de Preços</span>
+      <span>Buscador de Preços</span>
       <span class="tag">MELHORES CUSTOS DO DIA</span>
     </div>
     <div class="nav-actions">
       <span id="lastUpdateText" style="font-size:12px;color:var(--muted);">Atualizando...</span>
-      <a href="/admin" class="btn-admin">⚙️ Painel Administrativo (WhatsApp)</a>
+      <a href="/admin" class="btn-admin">Painel Administrativo (WhatsApp)</a>
     </div>
   </nav>
 
@@ -688,27 +734,27 @@ BUSCADOR_HTML = """<!DOCTYPE html>
 
     <!-- Barra de Filtros -->
     <div class="filters-bar">
-      <input type="text" id="qInput" class="search-box" placeholder="🔍 Buscar modelo, ex: iPhone 16 Pro Max 256, MacBook M3, iPad 10, AirPods..." oninput="renderProducts()" />
+      <input type="text" id="qInput" class="search-box" placeholder="Buscar modelo: iPhone 16 Pro Max 256GB, MacBook M3 16GB, iPad 10, AirPods..." oninput="renderProducts()" />
 
       <select id="dateFilter" onchange="renderProducts()">
-        <option value="ALL">📅 Todas as datas</option>
+        <option value="ALL">Todas as datas</option>
       </select>
 
       <select id="capFilter" onchange="renderProducts()">
-        <option value="ALL">💾 Todas as capacidades</option>
+        <option value="ALL">[SALVO] Todas as capacidades</option>
       </select>
 
       <select id="colorFilter" onchange="renderProducts()">
-        <option value="ALL">🎨 Todas as cores</option>
+        <option value="ALL">Todas as cores</option>
       </select>
 
       <select id="suppFilter" onchange="renderProducts()">
-        <option value="ALL">🏪 Todos os fornecedores</option>
+        <option value="ALL">Todos os fornecedores</option>
       </select>
 
       <div class="mode-toggle">
-        <button id="btnBestMode" class="active" onclick="setMode('BEST')">🏆 Menor Preço do Dia</button>
-        <button id="btnAllMode" onclick="setMode('ALL')">📋 Todas as Ofertas</button>
+        <button id="btnBestMode" class="active" onclick="setMode('BEST')">Menor Preço do Dia</button>
+        <button id="btnAllMode" onclick="setMode('ALL')">Todas as Ofertas</button>
       </div>
     </div>
 
@@ -717,15 +763,13 @@ BUSCADOR_HTML = """<!DOCTYPE html>
 
   <script>
     const CATEGORIES = [
-      { key: 'ALL', label: '🌟 Todos' },
-      { key: 'iPhones', label: '📱 iPhones' },
-      { key: 'iPhones Seminovos', label: '♻️ iPhones Seminovos' },
-      { key: 'MacBook', label: '💻 MacBook' },
-      { key: 'iPad', label: '📲 iPad' },
-      { key: 'Apple Watch', label: '⌚ Apple Watch' },
-      { key: 'AirPods', label: '🎧 AirPods' },
-      { key: 'Androids', label: '🤖 Androids' },
-      { key: 'Acessórios & Outros', label: '🔌 Acessórios & Outros' }
+      { key: 'ALL', label: 'Todos Apple' },
+      { key: 'iPhones', label: 'iPhones' },
+      { key: 'MacBook & iMac', label: 'MacBook & iMac' },
+      { key: 'iPad', label: 'iPad' },
+      { key: 'Apple Watch', label: 'Apple Watch' },
+      { key: 'AirPods', label: 'AirPods' },
+      { key: 'Acessórios Apple', label: 'Acessórios Apple' }
     ];
 
     let allProducts = [];
@@ -793,10 +837,10 @@ BUSCADOR_HTML = """<!DOCTYPE html>
         const colors = Array.from(new Set(allProducts.map(p => p.cor).filter(Boolean))).sort();
         const supps = Array.from(supSet).sort();
 
-        populateDropdown('dateFilter', dates, '📅 Todas as datas');
-        populateDropdown('capFilter', caps, '💾 Todas as capacidades');
-        populateDropdown('colorFilter', colors, '🎨 Todas as cores');
-        populateDropdown('suppFilter', supps, '🏪 Todos os fornecedores');
+        populateDropdown('dateFilter', dates, 'Todas as datas');
+        populateDropdown('capFilter', caps, 'Todas as capacidades');
+        populateDropdown('colorFilter', colors, 'Todas as cores');
+        populateDropdown('suppFilter', supps, 'Todos os fornecedores');
 
         renderCategoryTabs();
         renderProducts();
@@ -853,7 +897,7 @@ BUSCADOR_HTML = """<!DOCTYPE html>
       const container = document.getElementById('productsContainer');
       if (displayList.length === 0) {
         container.innerHTML = '<div class="empty-state">' +
-          '<div style="font-size:40px;margin-bottom:10px;">📭</div>' +
+          '<div style="font-size:16px;font-weight:700;margin-bottom:10px;color:var(--muted);">[NENHUM ITEM]</div>' +
           '<h3 style="margin:0 0 8px 0;color:#e2e8f0;">Nenhum produto encontrado para este filtro</h3>' +
           '<p style="margin:0;font-size:14px;">Assim que os fornecedores enviarem as listas nos grupos/comunidades do WhatsApp (ou você importar uma lista no <a href="/admin" style="color:#38bdf8;">Painel Administrativo</a>), os melhores preços aparecerão aqui automaticamente separados por categoria!</p>' +
         '</div>';
@@ -872,14 +916,14 @@ BUSCADOR_HTML = """<!DOCTYPE html>
           '<div>' +
             '<div class="prod-top">' +
               '<span class="prod-cat ' + (isSem ? 'seminovo' : '') + '">' + p.categoria + '</span>' +
-              '<span style="font-size:11px;color:#94a3b8;">🕒 ' + (p.data || '') + ' ' + (p.hora || '') + '</span>' +
+              '<span style="font-size:11px;color:#94a3b8;">Data: ' + (p.data || '') + ' ' + (p.hora || '') + '</span>' +
             '</div>' +
             '<div class="prod-title">' + p.modelo + '</div>' +
             '<div class="prod-specs">' +
-              (p.capacidade && p.capacidade !== '-' ? '<span class="spec-pill">💾 ' + p.capacidade + '</span>' : '') +
-              (p.cor && p.cor !== '-' ? '<span class="spec-pill">🎨 ' + p.cor + '</span>' : '') +
+              (p.capacidade && p.capacidade !== '-' ? '<span class="spec-pill">[SALVO] ' + p.capacidade + '</span>' : '') +
+              (p.cor && p.cor !== '-' ? '<span class="spec-pill">Cor: ' + p.cor + '</span>' : '') +
               '<span class="spec-pill">' + (p.condicao || 'Novo') + '</span>' +
-              (viewMode === 'BEST' && totalOffers > 1 ? '<span class="spec-pill" style="background:rgba(16,185,129,0.15);color:#34d399;">🏆 Menor entre ' + totalOffers + ' listas</span>' : '') +
+              (viewMode === 'BEST' && totalOffers > 1 ? '<span class="spec-pill" style="background:rgba(16,185,129,0.15);color:#34d399;">Melhor Preço entre ' + totalOffers + ' listas</span>' : '') +
             '</div>' +
           '</div>' +
           '<div>' +
@@ -889,10 +933,10 @@ BUSCADOR_HTML = """<!DOCTYPE html>
             '</div>' +
             '<div class="supp-box">' +
               '<div>' +
-                '<div class="supp-name">🏪 ' + (p.fornecedor || 'Fornecedor') + '</div>' +
-                '<div class="supp-meta">📍 ' + (p.origem || 'Grupo WhatsApp') + '</div>' +
+                '<div class="supp-name">Fornecedor: ' + (p.fornecedor || 'Fornecedor') + '</div>' +
+                '<div class="supp-meta">Origem: ' + (p.origem || 'Grupo WhatsApp') + '</div>' +
               '</div>' +
-              (telClean ? '<a class="btn-wa" href="' + waHref + '" target="_blank" rel="noopener">💬 WhatsApp</a>' : '') +
+              (telClean ? '<a class="btn-wa" href="' + waHref + '" target="_blank" rel="noopener">WhatsApp</a>' : '') +
             '</div>' +
           '</div>' +
         '</div>';
@@ -1112,14 +1156,14 @@ ADMIN_HTML = """<!DOCTYPE html>
   <div class="container">
     <header>
       <div>
-        <h1>⚙️ Painel Administrativo — WhatsApp, Comunidades & Captura de Preços</h1>
+        <h1>Painel Administrativo — WhatsApp, Comunidades & Captura de Preços</h1>
         <div style="font-size:13px;color:var(--muted);margin-top:4px;">
-          🔒 <strong>Trava Manual Ativa:</strong> Nenhum disparo é feito sem sua autorização. Comunidades e Listas de Preços são capturadas 24h!
+          <strong>Trava Manual Ativa:</strong> Nenhum disparo é feito sem sua autorização. Comunidades e Listas de Preços são capturadas 24h!
         </div>
       </div>
       <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
-        <a href="/" class="btn-link btn-blue">🔍 Abrir Buscador Público de Preços</a>
-        <span class="badge AUTOJOIN">🤖 CAÇADOR DE COMUNIDADES & LISTAS ATIVO</span>
+        <a href="/" class="btn-link btn-blue">Abrir Buscador Público de Preços</a>
+        <span class="badge AUTOJOIN">SISTEMA DE COMUNIDADES & LISTAS ATIVO</span>
         <span id="waStatusBadge" class="badge CONNECTING">Verificando...</span>
         <span id="campaignBadge" class="badge DISCONNECTED">DISPARO PARADO</span>
       </div>
@@ -1191,16 +1235,16 @@ ADMIN_HTML = """<!DOCTYPE html>
             <label style="font-size:12px;color:var(--muted);">Enviar teste avulso para um número:</label>
             <div style="display:flex;gap:6px;margin-top:4px;">
               <input type="text" id="testPhone" placeholder="Ex: 5511999999999" style="flex:1;" />
-              <button class="btn-ghost" onclick="sendTest()">🧪 Testar</button>
+              <button class="btn-ghost" onclick="sendTest()">Testar Envio</button>
             </div>
           </div>
         </div>
 
         <div class="btn-row">
-          <button class="btn-blue" onclick="saveConfig()">💾 Salvar Mensagem</button>
-          <button class="btn-green" id="btnStart" onclick="startCampaign()">🚀 Autorizar e Iniciar Disparo</button>
-          <button class="btn-warn" id="btnStop" onclick="stopCampaign()" disabled>⏸️ Pausar Disparo</button>
-          <button class="btn-ghost" onclick="resetHistory()">🔄 Zerar Histórico de Enviados</button>
+          <button class="btn-blue" onclick="saveConfig()">[SALVO] Salvar Mensagem</button>
+          <button class="btn-green" id="btnStart" onclick="startCampaign()">Autorizar e Iniciar Disparo</button>
+          <button class="btn-warn" id="btnStop" onclick="stopCampaign()" disabled>Pausar Disparo</button>
+          <button class="btn-ghost" onclick="resetHistory()">[RESET] Zerar Histórico de Enviados</button>
         </div>
         <div id="currentSending" style="margin-top:12px;font-size:13px;color:#38bdf8;font-weight:600;"></div>
       </div>
@@ -1209,10 +1253,10 @@ ADMIN_HTML = """<!DOCTYPE html>
     <!-- Card 3: Simulador / Importador Manual de Lista para o Buscador -->
     <div class="card">
       <h2>
-        <span>🏷️ Testar / Cadastrar Lista de Preços Manualmente no Buscador</span>
+        <span>[PRODUTO] Testar / Cadastrar Lista de Preços Manualmente no Buscador</span>
         <div style="display:flex;gap:8px;">
-          <button class="btn-ghost" onclick="loadSampleList()" style="padding:6px 12px;font-size:12px;">📋 Preencher Lista de Exemplo</button>
-          <button class="btn-ghost" onclick="clearProducts()" style="padding:6px 12px;font-size:12px;color:#f87171;">🗑️ Limpar Produtos do Buscador</button>
+          <button class="btn-ghost" onclick="loadSampleList()" style="padding:6px 12px;font-size:12px;">Preencher Lista de Exemplo</button>
+          <button class="btn-ghost" onclick="clearProducts()" style="padding:6px 12px;font-size:12px;color:#f87171;">[LIMPEZA] Limpar Produtos do Buscador</button>
         </div>
       </h2>
       <p style="margin:0 0 10px 0;font-size:13px;color:var(--muted);">
@@ -1224,23 +1268,23 @@ ADMIN_HTML = """<!DOCTYPE html>
       </div>
       <textarea id="manualListText" placeholder="Cole aqui a lista de produtos e preços do fornecedor..." style="min-height:110px;"></textarea>
       <div class="btn-row">
-        <button class="btn-green" onclick="submitManualList()">➕ Processar Lista e Publicar no Buscador</button>
-        <a href="/" class="btn-link btn-ghost">🔍 Ver no Buscador Aberto</a>
+        <button class="btn-green" onclick="submitManualList()">[NOVO] Processar Lista e Publicar no Buscador</button>
+        <a href="/" class="btn-link btn-ghost">Ver no Buscador Aberto</a>
       </div>
     </div>
 
     <!-- Card 4: Comunidades Entradas e Contatos Arquivados Monitorados -->
     <div class="card">
       <h2>
-        <span>📦 Todos os Contatos, Comunidades, Grupos & Listas Arquivadas Monitorados 24h</span>
+        <span>[ARQUIVO] Todos os Contatos, Comunidades, Grupos & Listas Arquivadas Monitorados 24h</span>
         <div style="display:flex;gap:8px;flex-wrap:wrap;">
           <input type="text" id="manualInviteLink" placeholder="Colar link chat.whatsapp.com/... para entrar e arquivar" style="width:300px;font-size:12px;" />
           <button class="btn-ghost" onclick="joinManualCommunity()" style="padding:6px 12px;font-size:12px;">Entrar e Arquivar Agora</button>
-          <button class="btn-blue" onclick="archiveAllNow()" style="padding:6px 12px;font-size:12px;">📦 Arquivar Tudo (Comunidades, Grupos e Listas)</button>
+          <button class="btn-blue" onclick="archiveAllNow()" style="padding:6px 12px;font-size:12px;">[ARQUIVO] Arquivar Tudo (Comunidades, Grupos e Listas)</button>
         </div>
       </h2>
       <p style="margin:0 0 10px 0;font-size:12px;color:#34d399;">
-        ✅ <strong>Monitoramento Total dos Arquivados Ativo:</strong> Todo contato, lista de transmissão, grupo ou comunidade que estiver <strong>arquivado no seu WhatsApp</strong> é monitorado automaticamente 24h por dia para capturar tabelas de preços e links de comunidades!
+        <strong>Monitoramento Total dos Arquivados Ativo:</strong> Todo contato, lista de transmissão, grupo ou comunidade que estiver <strong>arquivado no seu WhatsApp</strong> é monitorado automaticamente 24h por dia para capturar tabelas de preços e links de comunidades!
       </p>
       <div class="table-wrap" style="max-height:240px;">
         <table>
@@ -1349,7 +1393,7 @@ ADMIN_HTML = """<!DOCTYPE html>
             name: c.groupName || 'Comunidade',
             type: c.senderName || 'Comunidade / Grupo',
             id: c.link || c.code || '-',
-            status: c.status === 'ENTROU_E_ARQUIVOU' ? '✅ ENTROU E ARQUIVOU' : (c.status || 'ATIVO')
+            status: c.status === 'ENTROU_E_ARQUIVOU' ? 'ENTROU E ARQUIVOU' : (c.status || 'ATIVO')
           });
         }
         for (const a of archivedList.slice().reverse()) {
@@ -1359,7 +1403,7 @@ ADMIN_HTML = """<!DOCTYPE html>
               name: a.name || a.jid,
               type: a.type || 'Contato Arquivado',
               id: a.jid || '-',
-              status: '👁️ MONITORANDO ARQUIVADO'
+              status: 'MONITORANDO ARQUIVADO'
             });
           }
         }
@@ -1387,7 +1431,7 @@ ADMIN_HTML = """<!DOCTYPE html>
         const qrBox = document.getElementById('qrContainer');
         const connInfo = document.getElementById('connectedInfo');
         if (wa.status === 'CONNECTED') {
-          qrBox.innerHTML = '<div style="font-size:48px;">✅</div><div style="font-weight:700;color:#34d399;margin-top:8px;">Aparelho Conectado!</div><div style="font-size:12px;color:#94a3b8;margin-top:4px;">Monitor de Comunidades & Listas ativo 24h. O disparo só ocorre quando você clicar no botão verde ao lado.</div>';
+          qrBox.innerHTML = '<div style="font-size:24px;font-weight:800;color:#34d399;margin-bottom:6px;">[CONECTADO]</div><div style="font-weight:700;color:#34d399;margin-top:8px;">Aparelho Conectado!</div><div style="font-size:12px;color:#94a3b8;margin-top:4px;">Monitor de Comunidades & Listas ativo 24h. O disparo só ocorre quando você clicar no botão verde ao lado.</div>';
           connInfo.textContent = wa.user ? ('Conectado como: ' + wa.user.name + ' (' + wa.user.id + ')') : '';
         } else if (wa.status === 'QR_READY' && wa.qrDataUrl) {
           qrBox.innerHTML = '<img src="' + wa.qrDataUrl + '" alt="QR Code WhatsApp" /><div style="font-size:12px;color:#fbbf24;margin-top:8px;">Escaneie no WhatsApp > Aparelhos conectados</div>';
@@ -1405,7 +1449,7 @@ ADMIN_HTML = """<!DOCTYPE html>
           document.getElementById('btnStart').disabled = true;
           document.getElementById('btnStop').disabled = false;
           document.getElementById('currentSending').textContent = camp.current_supplier
-            ? ('📤 Processando agora: ' + camp.current_supplier)
+            ? ('Processando agora: ' + camp.current_supplier)
             : '⏳ Aguardando intervalo seguro entre mensagens...';
         } else {
           cBadge.className = 'badge DISCONNECTED';
@@ -1546,10 +1590,10 @@ ADMIN_HTML = """<!DOCTYPE html>
       document.getElementById('manualListSupplier').value = 'BOB CELL 0277';
       document.getElementById('manualListPhone').value = '5511977770277';
       document.getElementById('manualListText').value =
-        "📱 IPHONE 16 PRO MAX 256GB\\n" +
-        "⚫ PRETO R$ 7.150\\n" +
-        "⚪ BRANCO R$ 7.200\\n" +
-        "🏜️ DESERT R$ 7.180\\n\\n" +
+        "IPHONE 16 PRO MAX 256GB\\n" +
+        "PRETO R$ 7.150\\n" +
+        "BRANCO R$ 7.200\\n" +
+        "DESERT TITANIO R$ 7.180\\n\\n" +
         "IPHONE 15 128GB PRETO R$ 4.320\\n" +
         "IPHONE 13 128GB SWAP AZUL R$ 2.490\\n" +
         "MACBOOK AIR M2 8/256GB SPACE GRAY R$ 5.450\\n" +
@@ -1589,7 +1633,7 @@ ADMIN_HTML = """<!DOCTYPE html>
       const res = await fetch('/api/archive-all', { method: 'POST' });
       const data = await res.json();
       if (data.ok) {
-        alert('📦 Arquivamento completo! ' + (data.groupCount || 0) + ' grupos/comunidades e ' + (data.chatCount || 0) + ' conversas/listas arquivadas.');
+        alert('[ARQUIVO] Arquivamento completo! ' + (data.groupCount || 0) + ' grupos/comunidades e ' + (data.chatCount || 0) + ' conversas/listas arquivadas.');
       } else {
         alert('Aviso: ' + (data.error || 'Conecte o WhatsApp primeiro.'));
       }
@@ -1607,6 +1651,9 @@ ADMIN_HTML = """<!DOCTYPE html>
 class PanelHandler(BaseHTTPRequestHandler):
     def log_message(self, format, *args):
         pass
+
+    def do_HEAD(self):
+        self.do_GET()
 
     def _send_json(self, obj, status=200):
         body = json.dumps(obj, ensure_ascii=False).encode("utf-8")
@@ -1713,9 +1760,26 @@ class PanelHandler(BaseHTTPRequestHandler):
             participant_jid = str(body.get("participantJid", ""))
             push_name = str(body.get("pushName", ""))
             group_name = str(body.get("groupName", ""))
+            image_base64 = str(body.get("imageBase64", "")).strip()
+            msg_ts = body.get("timestamp")
+
+            # Bloqueio explícito do grupo/comunidade 'iFindz - Produtos Apple'
+            combined_origin = f"{group_name} {push_name} {remote_jid}".lower()
+            if "ifindz" in combined_origin:
+                self._send_json({"ok": True, "parsedCount": 0, "ignoredBlockedGroup": True})
+                return
+
+            # Validação estrita: somente processar mensagens recebidas no dia de hoje a partir das 06:00
+            if msg_ts and isinstance(msg_ts, (int, float)) and msg_ts > 0:
+                t_struct = time.localtime(msg_ts)
+                msg_date = time.strftime("%d/%m/%Y", t_struct)
+                msg_hour = time.strftime("%H:%M:%S", t_struct)
+                if msg_date != get_today_str() or msg_hour < "06:00:00":
+                    self._send_json({"ok": True, "parsedCount": 0, "ignoredOldDate": True})
+                    return
 
             sup_name, sup_phone = identify_supplier(participant_jid, remote_jid, push_name, group_name, text)
-            items = parse_supplier_message(text, sup_name, sup_phone, group_name or push_name)
+            items = parse_supplier_message(text, sup_name, sup_phone, group_name or push_name, image_base64=image_base64, msg_timestamp=msg_ts)
             if items:
                 try:
                     raw_log_path = os.path.join(BASE_DIR, "ultimas_listas_brutas.json")
@@ -1737,7 +1801,7 @@ class PanelHandler(BaseHTTPRequestHandler):
                 except Exception:
                     pass
                 saved = upsert_parsed_products(items)
-                add_panel_log(f"🏷️ {saved} produtos capturados automaticamente de {sup_name} ({group_name or 'WhatsApp'})")
+                add_panel_log(f"[PRODUTO] {saved} produtos capturados automaticamente de {sup_name} ({group_name or 'WhatsApp'})")
                 self._send_json({"ok": True, "parsedCount": saved, "supplierName": sup_name})
             else:
                 self._send_json({"ok": True, "parsedCount": 0})
@@ -1753,7 +1817,7 @@ class PanelHandler(BaseHTTPRequestHandler):
             items = parse_supplier_message(text, sup_name, sup_phone, "Importado no Painel")
             if items:
                 saved = upsert_parsed_products(items)
-                add_panel_log(f"🏷️ {saved} produtos importados manualmente para o fornecedor {sup_name}")
+                add_panel_log(f"[PRODUTO] {saved} produtos importados manualmente para o fornecedor {sup_name}")
                 self._send_json({"ok": True, "parsedCount": saved})
             else:
                 self._send_json({"ok": False, "parsedCount": 0})
@@ -1761,7 +1825,7 @@ class PanelHandler(BaseHTTPRequestHandler):
 
         if parsed.path == "/api/clear-products":
             save_produtos([])
-            add_panel_log("🗑️ Lista de produtos do Buscador foi limpa pelo administrador.")
+            add_panel_log("[LIMPEZA] Lista de produtos do Buscador foi limpa pelo administrador.")
             self._send_json({"ok": True})
             return
 
@@ -1775,7 +1839,7 @@ class PanelHandler(BaseHTTPRequestHandler):
             if "delay_max" in body:
                 cfg["delay_max"] = max(cfg["delay_min"], int(body["delay_max"]))
             save_config(cfg)
-            add_panel_log("💾 Configurações e mensagem atualizadas no painel.")
+            add_panel_log("[SALVO] Configurações e mensagem atualizadas no painel.")
             self._send_json({"ok": True, "config": cfg})
             return
 
@@ -1810,7 +1874,7 @@ class PanelHandler(BaseHTTPRequestHandler):
 
         if parsed.path == "/api/reset-history":
             save_historico({})
-            add_panel_log("🔄 Histórico de envios zerado. Todos os contatos voltaram para PENDENTE.")
+            add_panel_log("[RESET] Histórico de envios zerado. Todos os contatos voltaram para PENDENTE.")
             self._send_json({"ok": True})
             return
 
@@ -1821,7 +1885,7 @@ class PanelHandler(BaseHTTPRequestHandler):
                 bridge_post("/api/logout", {})
             except Exception:
                 pass
-            add_panel_log("🔌 Sessão do WhatsApp desconectada. Aguarde o novo QR Code.")
+            add_panel_log("[CONEXAO] Sessão do WhatsApp desconectada. Aguarde o novo QR Code.")
             self._send_json({"ok": True})
             return
 
@@ -1843,7 +1907,7 @@ class PanelHandler(BaseHTTPRequestHandler):
                         "horario": time.strftime("%Y-%m-%d %H:%M:%S"),
                     }
                     save_historico(hist)
-                    add_panel_log(f"✅ Envio individual concluído para {name} ({phone})")
+                    add_panel_log(f"[OK] Envio individual concluído para {name} ({phone})")
                     self._send_json({"ok": True})
                 else:
                     self._send_json({"ok": False, "error": resp.get("error")})
@@ -1864,7 +1928,7 @@ class PanelHandler(BaseHTTPRequestHandler):
         if parsed.path == "/api/archive-all":
             try:
                 resp = bridge_post("/api/archive-all", {})
-                add_panel_log(f"📦 Arquivamento geral executado: {resp.get('groupCount', 0)} grupos/comunidades e {resp.get('chatCount', 0)} conversas.")
+                add_panel_log(f"[ARQUIVO] Arquivamento geral executado: {resp.get('groupCount', 0)} grupos/comunidades e {resp.get('chatCount', 0)} conversas.")
                 self._send_json(resp)
             except Exception as e:
                 self._send_json({"ok": False, "error": str(e)})
@@ -1886,17 +1950,33 @@ class PanelHandler(BaseHTTPRequestHandler):
                 "datas": "Manual",
             })
             save_fornecedores(lista)
-            add_panel_log(f"➕ Contato adicionado à lista: {nome} ({telefone})")
+            add_panel_log(f"[NOVO] Contato adicionado à lista: {nome} ({telefone})")
             self._send_json({"ok": True})
             return
 
         self._send_json({"error": "Not found"}, status=404)
 
 
+def cleanup_old_products_on_start():
+    try:
+        hoje = get_today_str()
+        atuais_todos = load_produtos(only_today=False)
+        valid = [
+            p for p in atuais_todos
+            if p.get("data") == hoje and str(p.get("hora", "00:00:00")) >= "06:00:00"
+        ]
+        if len(valid) != len(atuais_todos):
+            save_produtos(valid)
+            add_panel_log(f"[STARTUP] Limpeza de preços: mantidos {len(valid)} produtos válidos de hoje ({hoje}) após 06:00.")
+    except Exception as e:
+        add_panel_log(f"[STARTUP] Erro na limpeza inicial: {e}")
+
+
 def main():
     load_config()
+    cleanup_old_products_on_start()
     ensure_bridge_running()
-    add_panel_log(f"Buscador Público (/) e Painel Admin (/admin) rodando em http://0.0.0.0:{PANEL_PORT}")
+    add_panel_log(f"Buscador de Preços (/) e Painel Admin (/admin) rodando em http://0.0.0.0:{PANEL_PORT}")
     server = ThreadingHTTPServer(("0.0.0.0", PANEL_PORT), PanelHandler)
     server.serve_forever()
 
