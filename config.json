@@ -1,0 +1,6 @@
+{
+  "mensagem": "Bom dia, tudo bem? Somos loja física aqui na Santa Efigênia. Gostaria de entrar na sua lista de transmissão.",
+  "delay_min": 8,
+  "delay_max": 15,
+  "auto_start_on_connect": false
+}

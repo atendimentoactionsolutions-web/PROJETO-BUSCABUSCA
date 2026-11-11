@@ -1,0 +1,16 @@
+{
+  "name": "disparador-fornecedores-pxt",
+  "version": "1.0.0",
+  "description": "Painel Python VPS e Disparador WhatsApp para Fornecedores PXT",
+  "type": "module",
+  "main": "whatsapp_bridge.js",
+  "scripts": {
+    "start": "python3 -u painel.py",
+    "bridge": "node whatsapp_bridge.js"
+  },
+  "dependencies": {
+    "@whiskeysockets/baileys": "^7.0.0-rc14",
+    "express": "^4.19.2",
+    "qrcode": "^1.5.3"
+  }
+}

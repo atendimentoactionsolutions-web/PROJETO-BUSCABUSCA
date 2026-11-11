@@ -1,0 +1,1430 @@
+﻿[
+    {
+        "id":  1,
+        "nome":  "25 ZONE 0855",
+        "telefone":  "5511994240855",
+        "localizacao":  "SHOPPING ORIENTAL 212",
+        "datas":  "10-11;09-11"
+    },
+    {
+        "id":  2,
+        "nome":  "ABBAS CELL 1766",
+        "telefone":  "5545998451766",
+        "localizacao":  "SHOPPING ORIENTAL 204B",
+        "datas":  "10-11;09-11"
+    },
+    {
+        "id":  3,
+        "nome":  "ABE CELL 1995",
+        "telefone":  "5511915632233",
+        "localizacao":  "SHOPPING ORIENTAL LN-227",
+        "datas":  "10-11;09-11"
+    },
+    {
+        "id":  4,
+        "nome":  "ABE SWAP 2727",
+        "telefone":  "5511942732727",
+        "localizacao":  "SHOPPING ORIENTAL LN-701",
+        "datas":  "10-11;09-11"
+    },
+    {
+        "id":  5,
+        "nome":  "ACLASS 4244",
+        "telefone":  "5511982434244",
+        "localizacao":  "SHOPPING ORIENTAL LN410-409",
+        "datas":  "10-11;09-11"
+    },
+    {
+        "id":  6,
+        "nome":  "AD CELL 1793",
+        "telefone":  "96176626850",
+        "localizacao":  "SHOPPING ORIENTAL 202A",
+        "datas":  "10-11;09-11"
+    },
+    {
+        "id":  7,
+        "nome":  "ADAMS SHOP 5803",
+        "telefone":  "96170725803",
+        "localizacao":  "SHOPPING ORIENTAL LN-221",
+        "datas":  "10-11;09-11"
+    },
+    {
+        "id":  8,
+        "nome":  "ADELS MUNDO CEL 9501",
+        "telefone":  "5511962254545",
+        "localizacao":  "SHOPPING ORIENTAL LN-257B",
+        "datas":  "11-11;10-11;09-11"
+    },
+    {
+        "id":  9,
+        "nome":  "AF IPHONES 8087",
+        "telefone":  "5511982548087",
+        "localizacao":  "SHOPPING ORIENTAL 218-B",
+        "datas":  "09-11"
+    },
+    {
+        "id":  10,
+        "nome":  "AFZ ELETRONICOS 1926",
+        "telefone":  "96176821926",
+        "localizacao":  "SHOPPING ORIENTAL 212A",
+        "datas":  "10-11;09-11"
+    },
+    {
+        "id":  11,
+        "nome":  "AGH CELL 9585",
+        "telefone":  "5511975059585",
+        "localizacao":  "SHOPPING ORIENTAL TQ-14",
+        "datas":  "10-11"
+    },
+    {
+        "id":  12,
+        "nome":  "AIR LUXE 0060",
+        "telefone":  "5511933130060",
+        "localizacao":  "SHOPPING ORIENTAL LN-56",
+        "datas":  "11-11;10-11;09-11"
+    },
+    {
+        "id":  13,
+        "nome":  "AJL IMPORTS 0996",
+        "telefone":  "5511932228395",
+        "localizacao":  "GALERIA PAGÉ BRÁS 145",
+        "datas":  "10-11;09-11"
+    },
+    {
+        "id":  14,
+        "nome":  "ALFA CELL 2092",
+        "telefone":  "5511911111116",
+        "localizacao":  "SHOPPING ORIENTAL",
+        "datas":  "10-11;09-11"
+    },
+    {
+        "id":  15,
+        "nome":  "ALI APPLE 7530",
+        "telefone":  "5511920187530",
+        "localizacao":  "SHOPPING ORIENTAL 319-E",
+        "datas":  "10-11"
+    },
+    {
+        "id":  16,
+        "nome":  "ALI PLACE 1745",
+        "telefone":  "5511995001745",
+        "localizacao":  "SHOPPING ORIENTAL VT-319",
+        "datas":  "10-11;09-11"
+    },
+    {
+        "id":  17,
+        "nome":  "ALPHA ELETRONICOS 8811",
+        "telefone":  "5511963118811",
+        "localizacao":  "SHOPPING ORIENTAL LN05 SUBSOLO",
+        "datas":  "10-11;09-11"
+    },
+    {
+        "id":  18,
+        "nome":  "ANWAR CELL 7352",
+        "telefone":  "5511982497352",
+        "localizacao":  "SHOPPING ORIENTAL",
+        "datas":  "11-11;10-11;09-11"
+    },
+    {
+        "id":  19,
+        "nome":  "APPLE START 0430",
+        "telefone":  "5511964210430",
+        "localizacao":  "SHOPPING ORIENTAL TÉRREO LN-44 ",
+        "datas":  "10-11;09-11"
+    },
+    {
+        "id":  20,
+        "nome":  "ARMANDO 8723",
+        "telefone":  "5511984798723",
+        "localizacao":  "SHOPPING ORIENTAL 106-A",
+        "datas":  "10-11;09-11"
+    },
+    {
+        "id":  21,
+        "nome":  "AT IMPORTS 4034",
+        "telefone":  "5511982234034",
+        "localizacao":  "SHOPPING ORIENTAL LN200",
+        "datas":  "10-11;09-11"
+    },
+    {
+        "id":  22,
+        "nome":  "ATR 7552",
+        "telefone":  "5511994297552",
+        "localizacao":  "SHOPPING ORIENTAL LN-235B",
+        "datas":  "09-11"
+    },
+    {
+        "id":  23,
+        "nome":  "AYOUB 8825",
+        "telefone":  "5511963928825",
+        "localizacao":  "SHOPPING ORIENTAL 219-B",
+        "datas":  "10-11;09-11"
+    },
+    {
+        "id":  24,
+        "nome":  "AZ MIX 5961",
+        "telefone":  "5545998565961",
+        "localizacao":  "SHOPPING ORIENTAL 202B-AZ",
+        "datas":  "11-11;10-11;09-11"
+    },
+    {
+        "id":  25,
+        "nome":  "AZUR 2728",
+        "telefone":  "595975174015",
+        "localizacao":  "GALERIA PAGÉ",
+        "datas":  "10-11;09-11"
+    },
+    {
+        "id":  26,
+        "nome":  "B.A IMPORTS 6238",
+        "telefone":  "5511934019334",
+        "localizacao":  "SHOPPING ORIENTAL LN-799",
+        "datas":  "10-11;09-11"
+    },
+    {
+        "id":  27,
+        "nome":  "BAGDA 6620",
+        "telefone":  "595994616620",
+        "localizacao":  "MEGA POLO BRÁS 357",
+        "datas":  "10-11;09-11"
+    },
+    {
+        "id":  28,
+        "nome":  "BAHIA CELL 4442",
+        "telefone":  "5511995914442",
+        "localizacao":  "SHOPPING ORIENTAL 302-B",
+        "datas":  "11-11;10-11;09-11"
+    },
+    {
+        "id":  29,
+        "nome":  "BAKOUR 9939",
+        "telefone":  "5511964259939",
+        "localizacao":  "SHOPPING ORIENTAL LN-727",
+        "datas":  "09-11"
+    },
+    {
+        "id":  30,
+        "nome":  "BANANA SHOP 4079",
+        "telefone":  "96181084079",
+        "localizacao":  "SHOPPING ORIENTAL LN-269-A",
+        "datas":  "11-11;10-11;09-11"
+    },
+    {
+        "id":  31,
+        "nome":  "BCP CELULARES 8304",
+        "telefone":  "5511953138304",
+        "localizacao":  "SHOPPING ORIENTAL LN-727",
+        "datas":  "10-11;09-11"
+    },
+    {
+        "id":  32,
+        "nome":  "BERLIM CELL 6777",
+        "telefone":  "5511959976777",
+        "localizacao":  "SHOPPING ORIENTAL LOJA 202",
+        "datas":  "11-11;10-11;09-11"
+    },
+    {
+        "id":  33,
+        "nome":  "BIG IMPORTS 2102",
+        "telefone":  "5511970678419",
+        "localizacao":  "CENTRO SP",
+        "datas":  "11-11;10-11;09-11"
+    },
+    {
+        "id":  34,
+        "nome":  "BINAN CELL 1111",
+        "telefone":  "5511949981111",
+        "localizacao":  "SHOPPING ORIENTAL 203-A",
+        "datas":  "10-11;09-11"
+    },
+    {
+        "id":  35,
+        "nome":  "BK CELL 2573",
+        "telefone":  "96170632573",
+        "localizacao":  "SHOPPING ORIENTAL 202BK",
+        "datas":  "10-11;09-11"
+    },
+    {
+        "id":  36,
+        "nome":  "BLACK CELL 8298",
+        "telefone":  "5511910838298",
+        "localizacao":  "SHOPPING ORIENTAL",
+        "datas":  "10-11;09-11"
+    },
+    {
+        "id":  37,
+        "nome":  "BLESS TEC 2329",
+        "telefone":  "5511959192329",
+        "localizacao":  "SHOPPING ORIENTAL 222",
+        "datas":  "10-11;09-11"
+    },
+    {
+        "id":  38,
+        "nome":  "BO ALI STORE 1166",
+        "telefone":  "5511984161166",
+        "localizacao":  "SHOPPING ORIENTAL LN-266",
+        "datas":  "10-11;09-11"
+    },
+    {
+        "id":  39,
+        "nome":  "BOB CELL 0277",
+        "telefone":  "5511977770277",
+        "localizacao":  "SHOPPING ORIENTAL LN-262",
+        "datas":  "11-11;10-11;09-11"
+    },
+    {
+        "id":  40,
+        "nome":  "BRABO CELL 6131",
+        "telefone":  "5511933806131",
+        "localizacao":  "SHOPPING ORIENTAL 317",
+        "datas":  "10-11;09-11"
+    },
+    {
+        "id":  41,
+        "nome":  "BRASIL GAMES 9770",
+        "telefone":  "5511988449770",
+        "localizacao":  "SHOPPING ORIENTAL 227-A",
+        "datas":  "10-11;09-11"
+    },
+    {
+        "id":  42,
+        "nome":  "BZ PHONES 2233",
+        "telefone":  "5511986312233",
+        "localizacao":  "SHOPPING ORIENTAL TERREO LN-59",
+        "datas":  "10-11;09-11"
+    },
+    {
+        "id":  43,
+        "nome":  "CAPTAIN 6286",
+        "telefone":  "5511952746286",
+        "localizacao":  "SHOPPING ORIENTAL LN-328",
+        "datas":  "10-11;09-11"
+    },
+    {
+        "id":  44,
+        "nome":  "CAVEIRA ATACADO 1152",
+        "telefone":  "5511960631152",
+        "localizacao":  "VILA JACUI",
+        "datas":  "09-11"
+    },
+    {
+        "id":  45,
+        "nome":  "CELL CENTER SHOP 7167",
+        "telefone":  "5511974627167",
+        "localizacao":  "SHOPPING ORIENTAL 203B",
+        "datas":  "11-11;10-11;09-11"
+    },
+    {
+        "id":  46,
+        "nome":  "CELL UP 0041",
+        "telefone":  "5511981280041",
+        "localizacao":  "SHOPPING ORIENTAL 323",
+        "datas":  "10-11;09-11"
+    },
+    {
+        "id":  47,
+        "nome":  "CELL ZONE 0938",
+        "telefone":  "5511992740938",
+        "localizacao":  "SHOPPING ORIENTAL LN-263",
+        "datas":  "10-11;09-11"
+    },
+    {
+        "id":  48,
+        "nome":  "CK IMPORTS 3398",
+        "telefone":  "595981673398",
+        "localizacao":  "SHOPPING ORIENTAL LN-759",
+        "datas":  "10-11;09-11"
+    },
+    {
+        "id":  49,
+        "nome":  "CLARICELL 8556",
+        "telefone":  "5511911018556",
+        "localizacao":  "SHOPPING ORIENTAL LN-359",
+        "datas":  "10-11;09-11"
+    },
+    {
+        "id":  50,
+        "nome":  "CONNECT CELL 6363",
+        "telefone":  "5511997886363",
+        "localizacao":  "SHOPPING ORIENTAL LN 238-A",
+        "datas":  "10-11;09-11"
+    },
+    {
+        "id":  51,
+        "nome":  "CONNECT PHONES 8588",
+        "telefone":  "5511992348588",
+        "localizacao":  "BAIRRO BUTANTÃ",
+        "datas":  "09-11"
+    },
+    {
+        "id":  52,
+        "nome":  "CRISTAL APPLE 1417",
+        "telefone":  "5511994481417",
+        "localizacao":  "SHOPPING ORIENTAL LN-742",
+        "datas":  "11-11;10-11"
+    },
+    {
+        "id":  53,
+        "nome":  "DANI LN230 2714",
+        "telefone":  "5511930812714",
+        "localizacao":  "SHOPPING ORIENTAL",
+        "datas":  "10-11;09-11"
+    },
+    {
+        "id":  54,
+        "nome":  "DOMINIO GAMES 5307",
+        "telefone":  "5511989975307",
+        "localizacao":  "SHOPPING ORIENTAL 211",
+        "datas":  "10-11;09-11"
+    },
+    {
+        "id":  55,
+        "nome":  "DUBAI 1272",
+        "telefone":  "5511913561272",
+        "localizacao":  "SHOPPING ORIENTAL LN-798",
+        "datas":  "09-11"
+    },
+    {
+        "id":  56,
+        "nome":  "EASY STORE 5113",
+        "telefone":  "5511933585113",
+        "localizacao":  "GALERIA PAGÉ LOJA  123",
+        "datas":  "10-11;09-11"
+    },
+    {
+        "id":  57,
+        "nome":  "ELECTRO IMPORTS SP 5902",
+        "telefone":  "5511991401490",
+        "localizacao":  "TATUAPÉ",
+        "datas":  "10-11;09-11"
+    },
+    {
+        "id":  58,
+        "nome":  "ELITE MOBILE 1100",
+        "telefone":  "5511922081100",
+        "localizacao":  "SHOPPING ORIENTAL TERREO 04",
+        "datas":  "10-11;09-11"
+    },
+    {
+        "id":  59,
+        "nome":  "ELITE SHOP 0689",
+        "telefone":  "5511960650689",
+        "localizacao":  "SHOPPING ORIENTAL LOJA 218A",
+        "datas":  "10-11;09-11"
+    },
+    {
+        "id":  60,
+        "nome":  "ELITTE STORY 7462",
+        "telefone":  "5511926597462",
+        "localizacao":  "SHOPPING ORIENTAL LN-780",
+        "datas":  "09-11"
+    },
+    {
+        "id":  61,
+        "nome":  "EMILIO SHOP 3241",
+        "telefone":  "96178813241",
+        "localizacao":  "SHOPPING ORIENTAL LN-793",
+        "datas":  "11-11;10-11;09-11"
+    },
+    {
+        "id":  62,
+        "nome":  "ESTRELA GAMES 8056",
+        "telefone":  "5511947528056",
+        "localizacao":  "SHOPPING ORIENTAL 213",
+        "datas":  "11-11;10-11;09-11"
+    },
+    {
+        "id":  63,
+        "nome":  "FACEPHONE 9444",
+        "telefone":  "5511954449444",
+        "localizacao":  "SHOPPING ORIENTAL LN-374",
+        "datas":  "11-11;10-11;09-11"
+    },
+    {
+        "id":  64,
+        "nome":  "FIRE CELL 1585",
+        "telefone":  "5511947041585",
+        "localizacao":  "SHOPPING ORIENTAL LN-235",
+        "datas":  "10-11;09-11"
+    },
+    {
+        "id":  65,
+        "nome":  "FONIX 3278",
+        "telefone":  "5511994623278",
+        "localizacao":  "SHOPPING ORIENTAL LN-208",
+        "datas":  "11-11;10-11;09-11"
+    },
+    {
+        "id":  66,
+        "nome":  "GENERAL CELL 0285",
+        "telefone":  "595992070285",
+        "localizacao":  "GALERIA PAGÉ SALA 24/25",
+        "datas":  "11-11;10-11;09-11"
+    },
+    {
+        "id":  67,
+        "nome":  "GRINGO TECH 2239",
+        "telefone":  "5511933322239",
+        "localizacao":  "SHOPPING ORIENTAL LN-239",
+        "datas":  "10-11;09-11"
+    },
+    {
+        "id":  68,
+        "nome":  "GSTORE 4246",
+        "telefone":  "5511978004246",
+        "localizacao":  "SHOPPING ORIENTAL",
+        "datas":  "11-11;10-11;09-11"
+    },
+    {
+        "id":  69,
+        "nome":  "GURAS IPHONE 4617",
+        "telefone":  "5511993474617",
+        "localizacao":  "SHOPPING ORIENTAL LN-48",
+        "datas":  "10-11;09-11"
+    },
+    {
+        "id":  70,
+        "nome":  "H\u0026Z CELL 9940",
+        "telefone":  "5511984999940",
+        "localizacao":  "SHOPPING ORIENTAL 207B",
+        "datas":  "10-11;09-11"
+    },
+    {
+        "id":  71,
+        "nome":  "H2 IMPORTS 0383",
+        "telefone":  "595992861867",
+        "localizacao":  "SHOPPING ORIENTAL CJ 506",
+        "datas":  "11-11;10-11;09-11"
+    },
+    {
+        "id":  72,
+        "nome":  "H3 4716",
+        "telefone":  "595994294716",
+        "localizacao":  "SHOPPING ORIENTAL",
+        "datas":  "09-11"
+    },
+    {
+        "id":  73,
+        "nome":  "HAKIM 7689",
+        "telefone":  "5511963227689",
+        "localizacao":  "SHOPPING ORIENTAL LN-235-B",
+        "datas":  "09-11"
+    },
+    {
+        "id":  74,
+        "nome":  "HAKO IPHONES 9174",
+        "telefone":  "5511917444444",
+        "localizacao":  "SHOPPING ORIENTAL LN 251",
+        "datas":  "09-11"
+    },
+    {
+        "id":  75,
+        "nome":  "HAYDOURA CELL 0840",
+        "telefone":  "5511964530840",
+        "localizacao":  "GALERIA PAGÉ 1 ANDAR LOJA 18",
+        "datas":  "10-11;09-11"
+    },
+    {
+        "id":  76,
+        "nome":  "HBB CELL 4111",
+        "telefone":  "5511912124111",
+        "localizacao":  "SHOPPING ORIENTAL LN-273-B",
+        "datas":  "11-11;10-11;09-11"
+    },
+    {
+        "id":  77,
+        "nome":  "HD ELETRONICOS 2296",
+        "telefone":  "5511977052296",
+        "localizacao":  "GALERIA PAGE SALA 34/35",
+        "datas":  "10-11;09-11"
+    },
+    {
+        "id":  78,
+        "nome":  "HH CELL 1471",
+        "telefone":  "595992381471",
+        "localizacao":  "GALERIA PAGÉ",
+        "datas":  "10-11;09-11"
+    },
+    {
+        "id":  79,
+        "nome":  "HIJAZI CELL 0400",
+        "telefone":  "5511952710400",
+        "localizacao":  "SHOPPING ORIENTAL VT2D",
+        "datas":  "10-11;09-11"
+    },
+    {
+        "id":  80,
+        "nome":  "HM COMPANY 4851",
+        "telefone":  "5511911514851",
+        "localizacao":  "GALERIA PAGE",
+        "datas":  "10-11;09-11"
+    },
+    {
+        "id":  81,
+        "nome":  "HN CELL 6014",
+        "telefone":  "5511991676014",
+        "localizacao":  "GALERIA PAGÉ TERREO 07",
+        "datas":  "09-11"
+    },
+    {
+        "id":  82,
+        "nome":  "HYH 6940",
+        "telefone":  "5511954236940",
+        "localizacao":  "SHOPPING ORIENTAL LN-751",
+        "datas":  "10-11;09-11"
+    },
+    {
+        "id":  83,
+        "nome":  "IBIONIC 6860",
+        "telefone":  "5511994466860",
+        "localizacao":  "SHOPPING ORIENTAL LN-340",
+        "datas":  "10-11;09-11"
+    },
+    {
+        "id":  84,
+        "nome":  "IMAX EXPRESS 9197",
+        "telefone":  "595991769197",
+        "localizacao":  "SHOPPING ORIENTAL LN 272",
+        "datas":  "10-11;09-11"
+    },
+    {
+        "id":  85,
+        "nome":  "IMPORTADOS XFB 1998",
+        "telefone":  "5516991409617",
+        "localizacao":  "SHOPPING ORIENTAL LN-712",
+        "datas":  "11-11;10-11;09-11"
+    },
+    {
+        "id":  86,
+        "nome":  "INFINITO 0400",
+        "telefone":  "5511981880400",
+        "localizacao":  "SHOPPING ORIENTAL 633",
+        "datas":  "11-11;10-11;09-11"
+    },
+    {
+        "id":  87,
+        "nome":  "INFINITY MOBILE 3320",
+        "telefone":  "595992133320",
+        "localizacao":  "SHOPPING ORIENTAL LN-220",
+        "datas":  "10-11;09-11"
+    },
+    {
+        "id":  88,
+        "nome":  "IPHONE WORLD GABY 4191",
+        "telefone":  "5511918544191",
+        "localizacao":  "SHOPPING ORIENTAL LN-264",
+        "datas":  "10-11;09-11"
+    },
+    {
+        "id":  89,
+        "nome":  "ISEK 7775",
+        "telefone":  "5511910107775",
+        "localizacao":  "SHOPPING ORIENTAL LN 705",
+        "datas":  "10-11;09-11"
+    },
+    {
+        "id":  90,
+        "nome":  "ISMART 4427",
+        "telefone":  "5511939274427",
+        "localizacao":  "SHOPPING ORIENTAL LN-210",
+        "datas":  "10-11;09-11"
+    },
+    {
+        "id":  91,
+        "nome":  "ISSA CELL 7358",
+        "telefone":  "5511940837358",
+        "localizacao":  "SHOPPING ORIENTAL 222B",
+        "datas":  "10-11;09-11"
+    },
+    {
+        "id":  92,
+        "nome":  "ISTYLE 2222",
+        "telefone":  "5511999984898",
+        "localizacao":  "SHOPPING ORIENTAL",
+        "datas":  "10-11;09-11"
+    },
+    {
+        "id":  93,
+        "nome":  "JAMIL FARHAT 2531",
+        "telefone":  "5511958182531",
+        "localizacao":  "GALERIA PEGÉ SALA 18/19",
+        "datas":  "11-11;10-11;09-11"
+    },
+    {
+        "id":  94,
+        "nome":  "JNB 5554",
+        "telefone":  "5511965555554",
+        "localizacao":  "SHOPPING ORIENTAL LN-223",
+        "datas":  "09-11"
+    },
+    {
+        "id":  95,
+        "nome":  "JOYCE 1664",
+        "telefone":  "5511982431664",
+        "localizacao":  "SHOPPING ORIENTAL LN-230",
+        "datas":  "10-11;09-11"
+    },
+    {
+        "id":  96,
+        "nome":  "JR CELL 1609",
+        "telefone":  "5511970711609",
+        "localizacao":  "SHOPPING ORIENTAL LN-360",
+        "datas":  "09-11"
+    },
+    {
+        "id":  97,
+        "nome":  "JR CELULARES 0539",
+        "telefone":  "5511930900539",
+        "localizacao":  "GALERIA PAGÉ",
+        "datas":  "11-11;10-11;09-11"
+    },
+    {
+        "id":  98,
+        "nome":  "JUNIOR CELL 2277",
+        "telefone":  "5511982542277",
+        "localizacao":  "SHOPPING ORIENTAL 306C",
+        "datas":  "11-11;10-11;09-11"
+    },
+    {
+        "id":  99,
+        "nome":  "KA EXPRESS 3020",
+        "telefone":  "5511999183020",
+        "localizacao":  "GALERIA PAGÉ 10° ANDAR LOJA 104",
+        "datas":  "10-11;09-11"
+    },
+    {
+        "id":  100,
+        "nome":  "KARINA TOKYO 9909",
+        "telefone":  "5511970579909",
+        "localizacao":  "SHOPPING ORIENTAL",
+        "datas":  "10-11;09-11"
+    },
+    {
+        "id":  101,
+        "nome":  "KAYAN LOJA 1590",
+        "telefone":  "5511925591590",
+        "localizacao":  "SHOPPING ORIENTAL LN-247",
+        "datas":  "11-11;10-11;09-11"
+    },
+    {
+        "id":  102,
+        "nome":  "KING CELL 2353",
+        "telefone":  "5511947612353",
+        "localizacao":  "GALERIA PAGÉ 1º ANDAR SALA 18",
+        "datas":  "10-11;09-11"
+    },
+    {
+        "id":  103,
+        "nome":  "KING SHOP 4510",
+        "telefone":  "5511954180881",
+        "localizacao":  "SHOPPING ORIENTAL LOJA 255",
+        "datas":  "10-11"
+    },
+    {
+        "id":  104,
+        "nome":  "KINGDON ELETRONICOS 8211",
+        "telefone":  "5511912558211",
+        "localizacao":  "SHOPPING ORIENTAL LN-222",
+        "datas":  "10-11;09-11"
+    },
+    {
+        "id":  105,
+        "nome":  "LARA ELETRONICOS 9447",
+        "telefone":  "5511939429447",
+        "localizacao":  "GALERIA PAGÉ - 17 B",
+        "datas":  "10-11;09-11"
+    },
+    {
+        "id":  106,
+        "nome":  "LOJA 31 7993",
+        "telefone":  "5511946617993",
+        "localizacao":  "GALERIA PAGE 25 SALA 31",
+        "datas":  "10-11;09-11"
+    },
+    {
+        "id":  107,
+        "nome":  "LOJA 39 0313",
+        "telefone":  "5511948060313",
+        "localizacao":  "GALERIA PAGE 25 SALA 39",
+        "datas":  "11-11;10-11;09-11"
+    },
+    {
+        "id":  108,
+        "nome":  "LOJA FOX 9077",
+        "telefone":  "595987119077",
+        "localizacao":  "SHOPPING ORIENTAL LN-739",
+        "datas":  "10-11;09-11"
+    },
+    {
+        "id":  109,
+        "nome":  "LOJA GK 5836",
+        "telefone":  "5511966355836",
+        "localizacao":  "SHOPPING ORIENTAL LN-211",
+        "datas":  "10-11;09-11"
+    },
+    {
+        "id":  110,
+        "nome":  "LOJA H\u0026H 8305",
+        "telefone":  "5511989708305",
+        "localizacao":  "SHOPPING ORIENTAL 202BK",
+        "datas":  "10-11;09-11"
+    },
+    {
+        "id":  111,
+        "nome":  "LOJA XCELL 8794",
+        "telefone":  "5511953698794",
+        "localizacao":  "SHOPPING ORIENTAL 204C",
+        "datas":  "09-11"
+    },
+    {
+        "id":  112,
+        "nome":  "LUMIX MOBILE 5237",
+        "telefone":  "5511915035237",
+        "localizacao":  "SHOPPING ORIENTAL VT-2C",
+        "datas":  "10-11;09-11"
+    },
+    {
+        "id":  113,
+        "nome":  "LUNA CELL 6000",
+        "telefone":  "96179426000",
+        "localizacao":  "SHOPPING ORIENTAL LN 42/43",
+        "datas":  "10-11;09-11"
+    },
+    {
+        "id":  114,
+        "nome":  "M.M ELETRONICOS 8257",
+        "telefone":  "5511952898257",
+        "localizacao":  "GALERIA PAGE SALA 18",
+        "datas":  "10-11;09-11"
+    },
+    {
+        "id":  115,
+        "nome":  "MADRID ELETRONICOS 7750",
+        "telefone":  "5511994257750",
+        "localizacao":  "SHOPPING ORIENTAL LN-314",
+        "datas":  "10-11;09-11"
+    },
+    {
+        "id":  116,
+        "nome":  "MAHER CELL 7851",
+        "telefone":  "96181947851",
+        "localizacao":  "SHOPPING ORIENTAL",
+        "datas":  "10-11;09-11"
+    },
+    {
+        "id":  117,
+        "nome":  "MALAK CELL 6677",
+        "telefone":  "5511995516677",
+        "localizacao":  "SHOPPING ORIENTAL 238-B",
+        "datas":  "11-11;10-11;09-11"
+    },
+    {
+        "id":  118,
+        "nome":  "MAR CEL 1118",
+        "telefone":  "5511932081118",
+        "localizacao":  "SHOPPING ORIENTAL LN-240-A",
+        "datas":  "10-11"
+    },
+    {
+        "id":  119,
+        "nome":  "MARIACHI CELL 5365",
+        "telefone":  "5545988195365",
+        "localizacao":  "SHOPPING ORIENTAL LN-441",
+        "datas":  "09-11"
+    },
+    {
+        "id":  120,
+        "nome":  "MATRIX 9882",
+        "telefone":  "96171139882",
+        "localizacao":  "SHOPPING ORIENTAL 207A",
+        "datas":  "11-11;10-11;09-11"
+    },
+    {
+        "id":  121,
+        "nome":  "MB ELETRÔNICOS 2754",
+        "telefone":  "595973557753",
+        "localizacao":  "GALERIA PAGÉ ",
+        "datas":  "09-11"
+    },
+    {
+        "id":  122,
+        "nome":  "MEGA CELL 3369",
+        "telefone":  "5511950893369",
+        "localizacao":  "GALERIA PAGÉ SALA 18",
+        "datas":  "10-11;09-11"
+    },
+    {
+        "id":  123,
+        "nome":  "MEGA CENTER 3821",
+        "telefone":  "96171113821",
+        "localizacao":  "SHOPPING ORIENTAL  LN-269",
+        "datas":  "10-11;09-11"
+    },
+    {
+        "id":  124,
+        "nome":  "MELK IMPORTS 8640",
+        "telefone":  "5511977373504",
+        "localizacao":  "SHOPPING ORIENTAL LN-794",
+        "datas":  "10-11;09-11"
+    },
+    {
+        "id":  125,
+        "nome":  "MEU CELULAR SP 8881",
+        "telefone":  "5511983888881",
+        "localizacao":  "SHOPPING ORIENTAL LOJA 204",
+        "datas":  "10-11;09-11"
+    },
+    {
+        "id":  126,
+        "nome":  "MF CELULARES 5526",
+        "telefone":  "5511965665526",
+        "localizacao":  "SHOPPING ORIENTAL 207B",
+        "datas":  "10-11;09-11"
+    },
+    {
+        "id":  127,
+        "nome":  "MI REAL IMPORTS 8036",
+        "telefone":  "5511970568036",
+        "localizacao":  "GALERIA PAGÉ 1 ANDAR LOJA 1B",
+        "datas":  "11-11;10-11;09-11"
+    },
+    {
+        "id":  128,
+        "nome":  "MIAMI STORE 6881",
+        "telefone":  "5511991966881",
+        "localizacao":  "SHOPPING ORIENTAL LN-267-A",
+        "datas":  "10-11;09-11"
+    },
+    {
+        "id":  129,
+        "nome":  "MIAMI ZONE GRAZIELA 4859",
+        "telefone":  "5511983764859",
+        "localizacao":  "SHOPPING ORIENTAL LN-680",
+        "datas":  "09-11"
+    },
+    {
+        "id":  130,
+        "nome":  "MKD STORES 2997",
+        "telefone":  "5511913052997",
+        "localizacao":  "SHOPPING UNIFREE BOX 328",
+        "datas":  "10-11;09-11"
+    },
+    {
+        "id":  131,
+        "nome":  "MOHAMED NASSER 0333",
+        "telefone":  "5511994430333",
+        "localizacao":  "SHOPPING ORIENTAL LN-229",
+        "datas":  "10-11;09-11"
+    },
+    {
+        "id":  132,
+        "nome":  "MOHER CELL 5560",
+        "telefone":  "96181945560",
+        "localizacao":  "SHOPPING ORIENTAL LN-271",
+        "datas":  "10-11;09-11"
+    },
+    {
+        "id":  133,
+        "nome":  "MR APPLE 5272",
+        "telefone":  "5511952795272",
+        "localizacao":  "GALERIA PAGE 25",
+        "datas":  "10-11;09-11"
+    },
+    {
+        "id":  134,
+        "nome":  "MUNDO DO IPHONE 5805",
+        "telefone":  "5511984805805",
+        "localizacao":  "SHOPPING ORIENTAL LN 53",
+        "datas":  "11-11;10-11;09-11"
+    },
+    {
+        "id":  135,
+        "nome":  "NANA 9588",
+        "telefone":  "5511989929588",
+        "localizacao":  "GALERIA PAGÉ TERREO 65",
+        "datas":  "11-11"
+    },
+    {
+        "id":  136,
+        "nome":  "NAYA CELL 8000",
+        "telefone":  "5511989998000",
+        "localizacao":  "SHOPPING ORIENTAL LN-258A",
+        "datas":  "09-11"
+    },
+    {
+        "id":  137,
+        "nome":  "NEW DUBAI 9620",
+        "telefone":  "5511920809620",
+        "localizacao":  "SHOPPING ORIENTAL",
+        "datas":  "11-11;10-11;09-11"
+    },
+    {
+        "id":  138,
+        "nome":  "NORDESTE CELL 4635",
+        "telefone":  "5522998314635",
+        "localizacao":  "SHOPPING ORIENTAL",
+        "datas":  "11-11;10-11"
+    },
+    {
+        "id":  139,
+        "nome":  "NV CELL 0459",
+        "telefone":  "5511932380459",
+        "localizacao":  "SHOPPING ORIENTAL 204-A",
+        "datas":  "11-11;10-11;09-11"
+    },
+    {
+        "id":  140,
+        "nome":  "NY CELL 8722",
+        "telefone":  "5511968268722",
+        "localizacao":  "SHOPPING ORIENTAL ",
+        "datas":  "11-11;10-11;09-11"
+    },
+    {
+        "id":  141,
+        "nome":  "ON CELL 5233",
+        "telefone":  "5511996975233",
+        "localizacao":  "SHOPPING ORIENTAL LN-310",
+        "datas":  "10-11;09-11"
+    },
+    {
+        "id":  142,
+        "nome":  "ON OFF 1211",
+        "telefone":  "5511981891211",
+        "localizacao":  "SHOPPING ORIENTAL LN 337",
+        "datas":  "10-11;09-11"
+    },
+    {
+        "id":  143,
+        "nome":  "ONLY APPLE 9858",
+        "telefone":  "5511910419858",
+        "localizacao":  "SHOPPING ORIENTAL LN-643",
+        "datas":  "09-11"
+    },
+    {
+        "id":  144,
+        "nome":  "PANTERA TECH 5214",
+        "telefone":  "5511966585214",
+        "localizacao":  "SHOPPING ORIENTAL LN-319",
+        "datas":  "10-11;09-11"
+    },
+    {
+        "id":  145,
+        "nome":  "PETRA CELL 8866",
+        "telefone":  "5511999008866",
+        "localizacao":  "SHOPPING ORIENTAL LN-357",
+        "datas":  "11-11;10-11;09-11"
+    },
+    {
+        "id":  146,
+        "nome":  "PHOENIX GABI 7167",
+        "telefone":  "12724447167",
+        "localizacao":  "SHOPPING ORIENTAL ",
+        "datas":  "11-11;10-11"
+    },
+    {
+        "id":  147,
+        "nome":  "PHONE LINK 9823",
+        "telefone":  "5511994249823",
+        "localizacao":  "GALERIA PAGÉ LOJA 03",
+        "datas":  "10-11;09-11"
+    },
+    {
+        "id":  148,
+        "nome":  "PLANETA 2233",
+        "telefone":  "5511953332233",
+        "localizacao":  "SHOPPING ORIENTAL LN-231",
+        "datas":  "10-11;09-11"
+    },
+    {
+        "id":  149,
+        "nome":  "PLATINUM TECH 1993",
+        "telefone":  "5511925571993",
+        "localizacao":  "SHOPPING ORIENTAL 644",
+        "datas":  "10-11;09-11"
+    },
+    {
+        "id":  150,
+        "nome":  "POLAR CELL 2051",
+        "telefone":  "5511930102051",
+        "localizacao":  "SHOPPING ORIENTAL 405",
+        "datas":  "10-11;09-11"
+    },
+    {
+        "id":  151,
+        "nome":  "PONTO CELL 8889",
+        "telefone":  "5511992655419",
+        "localizacao":  "SHOPPING ORIENTAL ",
+        "datas":  "10-11;09-11"
+    },
+    {
+        "id":  152,
+        "nome":  "PONTO CERTO 9119",
+        "telefone":  "5511988809119",
+        "localizacao":  "GALERIA PAGÉ BRAS",
+        "datas":  "10-11;09-11"
+    },
+    {
+        "id":  153,
+        "nome":  "PRATA CELL 1478",
+        "telefone":  "96176811478",
+        "localizacao":  "SHOPPING ORIENTAL LN-215A",
+        "datas":  "10-11;09-11"
+    },
+    {
+        "id":  154,
+        "nome":  "PRIME CELL 9610",
+        "telefone":  "5511978309610",
+        "localizacao":  "GALERIA PAGÉ BRÁS",
+        "datas":  "10-11;09-11"
+    },
+    {
+        "id":  155,
+        "nome":  "PRIME CELL ORIENTAL 3050",
+        "telefone":  "5511984213050",
+        "localizacao":  "SHOPPING ORIENTAL 304-A",
+        "datas":  "11-11;10-11;09-11"
+    },
+    {
+        "id":  156,
+        "nome":  "PRIME COMPANY 6920",
+        "telefone":  "5511999936920",
+        "localizacao":  "REPUBLICA",
+        "datas":  "10-11;09-11"
+    },
+    {
+        "id":  157,
+        "nome":  "PRIMO CELL 6458",
+        "telefone":  "5511959856458",
+        "localizacao":  "SHOPPING ORIENTAL LN 744",
+        "datas":  "10-11"
+    },
+    {
+        "id":  158,
+        "nome":  "PRIMUS 9984",
+        "telefone":  "5511981459984",
+        "localizacao":  "SHOPPING ORIENTAL 222C",
+        "datas":  "11-11;10-11;09-11"
+    },
+    {
+        "id":  159,
+        "nome":  "PRO DIGITAL 2679",
+        "telefone":  "9613702679",
+        "localizacao":  "GALERIA PAGE 25",
+        "datas":  "11-11;10-11;09-11"
+    },
+    {
+        "id":  160,
+        "nome":  "PRO NINE 2204",
+        "telefone":  "5511918442204",
+        "localizacao":  "MOOCA",
+        "datas":  "10-11;09-11"
+    },
+    {
+        "id":  161,
+        "nome":  "PRO PHONE 8077",
+        "telefone":  "5511959238077",
+        "localizacao":  "SHOPPING ORIENTAL 323-A",
+        "datas":  "10-11;09-11"
+    },
+    {
+        "id":  162,
+        "nome":  "RAYZA 4198",
+        "telefone":  "5511998274198",
+        "localizacao":  "SHOPPING ORIENTAL LN-643",
+        "datas":  "10-11;09-11"
+    },
+    {
+        "id":  163,
+        "nome":  "REI DO IPHONE 0250",
+        "telefone":  "5511943060250",
+        "localizacao":  "SHOPPING ORIENTAL 203-D LADO B",
+        "datas":  "10-11;09-11"
+    },
+    {
+        "id":  164,
+        "nome":  "REX COMPANY 3565",
+        "telefone":  "5511912958009",
+        "localizacao":  "R. Barão de Duprat, 330",
+        "datas":  "11-11;10-11;09-11"
+    },
+    {
+        "id":  165,
+        "nome":  "RITAJ CELL 5609",
+        "telefone":  "5511988225609",
+        "localizacao":  "SHOPPING ORIENTAL LN 268",
+        "datas":  "11-11;10-11;09-11"
+    },
+    {
+        "id":  166,
+        "nome":  "ROYAL ATACADO 0510",
+        "telefone":  "5511956900510",
+        "localizacao":  "TATUAPÉ/BARRA FUNDA",
+        "datas":  "10-11"
+    },
+    {
+        "id":  167,
+        "nome":  "SABRA CELL 1723",
+        "telefone":  "96178856208",
+        "localizacao":  "SHOPPING ORIENTAL 406A",
+        "datas":  "10-11;09-11"
+    },
+    {
+        "id":  168,
+        "nome":  "SAM CELL 7767",
+        "telefone":  "5511944787767",
+        "localizacao":  "SHOPPING ORIENTAL LN 45",
+        "datas":  "10-11;09-11"
+    },
+    {
+        "id":  169,
+        "nome":  "SELENA 0613",
+        "telefone":  "5511960190613",
+        "localizacao":  "SHOPPING ORIENTAL 304 LADO VELHO",
+        "datas":  "10-11;09-11"
+    },
+    {
+        "id":  170,
+        "nome":  "SHOP CELL 7229",
+        "telefone":  "5511969087229",
+        "localizacao":  "GALERIA PAGÉ 205-B",
+        "datas":  "11-11;10-11;09-11"
+    },
+    {
+        "id":  171,
+        "nome":  "SOUNA 5558",
+        "telefone":  "5511932325558",
+        "localizacao":  "SHOPPING ORIENTAL LN-260-D",
+        "datas":  "10-11;09-11"
+    },
+    {
+        "id":  172,
+        "nome":  "STAR CELL 8610",
+        "telefone":  "554591278610",
+        "localizacao":  "SHOPPING ORIENTAL LN-706",
+        "datas":  "09-11"
+    },
+    {
+        "id":  173,
+        "nome":  "STUDIO CELL 9649",
+        "telefone":  "5511947819649",
+        "localizacao":  "GALERIA PAGÉ BRÁS TERREO 209",
+        "datas":  "10-11;09-11"
+    },
+    {
+        "id":  174,
+        "nome":  "TAI APPLE 5919",
+        "telefone":  "5511953995919",
+        "localizacao":  "SHOPPING ORIENTAL LN-234B",
+        "datas":  "10-11;09-11"
+    },
+    {
+        "id":  175,
+        "nome":  "TALLA CELL 6603",
+        "telefone":  "5511940886603",
+        "localizacao":  "SHOPPING ORIENTAL LN-207-A",
+        "datas":  "10-11;09-11"
+    },
+    {
+        "id":  176,
+        "nome":  "TELEMAX 0909",
+        "telefone":  "5511977710909",
+        "localizacao":  "SHOPPING ORIENTAL",
+        "datas":  "10-11;09-11"
+    },
+    {
+        "id":  177,
+        "nome":  "TELENOVA 5194",
+        "telefone":  "96181005194",
+        "localizacao":  "SHOPPING ORIENTAL 221-C",
+        "datas":  "10-11;09-11"
+    },
+    {
+        "id":  178,
+        "nome":  "TESLA CELL 2815",
+        "telefone":  "5511911112815",
+        "localizacao":  "SHOPPING ORIENTAL LN-248",
+        "datas":  "10-11;09-11"
+    },
+    {
+        "id":  179,
+        "nome":  "TIAGO 9481",
+        "telefone":  "5511937069481",
+        "localizacao":  "SHOPPING ORIENTAL LN-351",
+        "datas":  "10-11;09-11"
+    },
+    {
+        "id":  180,
+        "nome":  "TIO CELL 2220",
+        "telefone":  "5511949522220",
+        "localizacao":  "SHOPPING ORIENTAL LN-1OO",
+        "datas":  "10-11"
+    },
+    {
+        "id":  181,
+        "nome":  "TIO SAN 8016",
+        "telefone":  "13055408016",
+        "localizacao":  "GUARULHOS",
+        "datas":  "11-11;10-11;09-11"
+    },
+    {
+        "id":  182,
+        "nome":  "TM CELULARES NATACH 1405",
+        "telefone":  "5511970771405",
+        "localizacao":  "SHOPPING ORIENTAL LN-330",
+        "datas":  "10-11;09-11"
+    },
+    {
+        "id":  183,
+        "nome":  "TM LN330 7618",
+        "telefone":  "5511913587618",
+        "localizacao":  "SHOPPING ORIENTAL LN-330",
+        "datas":  "10-11;09-11"
+    },
+    {
+        "id":  184,
+        "nome":  "TOKYO FONE 0672",
+        "telefone":  "5511926700672",
+        "localizacao":  "SHOPPING ORIENTAL ",
+        "datas":  "10-11;09-11"
+    },
+    {
+        "id":  185,
+        "nome":  "TOKYO SHOP 5263",
+        "telefone":  "5511948245263",
+        "localizacao":  "SHOPPING ORIENTAL 202-F",
+        "datas":  "10-11;09-11"
+    },
+    {
+        "id":  186,
+        "nome":  "TOP ELETRONICOS 2459",
+        "telefone":  "5511951252459",
+        "localizacao":  "GALERIA PAGÉ SALA 47",
+        "datas":  "11-11;10-11;09-11"
+    },
+    {
+        "id":  187,
+        "nome":  "TRADE CELL 8794",
+        "telefone":  "5511961548794",
+        "localizacao":  "SHOPPING ORIENTAL LN-773",
+        "datas":  "11-11;10-11;09-11"
+    },
+    {
+        "id":  188,
+        "nome":  "TREND 5593",
+        "telefone":  "5511958105593",
+        "localizacao":  "SHOPPING ORIENTAL LN-232",
+        "datas":  "10-11;09-11"
+    },
+    {
+        "id":  189,
+        "nome":  "TRI PHONE SP 4444",
+        "telefone":  "5511952244444",
+        "localizacao":  "SHOPPING ORIENTAL LN 270",
+        "datas":  "11-11;10-11;09-11"
+    },
+    {
+        "id":  190,
+        "nome":  "TROY CELL 4004",
+        "telefone":  "5511939494004",
+        "localizacao":  "GALERIA PAGÉ TERREO 50",
+        "datas":  "10-11;09-11"
+    },
+    {
+        "id":  191,
+        "nome":  "TUDO APPLE 6593",
+        "telefone":  "5511940816593",
+        "localizacao":  "BAIRRO TATUAPÉ",
+        "datas":  "10-11;09-11"
+    },
+    {
+        "id":  192,
+        "nome":  "ULTRA PHONE 8812",
+        "telefone":  "5511948249117",
+        "localizacao":  "SHOPPING ORIENTAL LN-73A TÉRREO",
+        "datas":  "11-11;10-11;09-11"
+    },
+    {
+        "id":  193,
+        "nome":  "ULTRA STORE 7915",
+        "telefone":  "5511934377915",
+        "localizacao":  "SHOPPING ORIENTAL ",
+        "datas":  "10-11;09-11"
+    },
+    {
+        "id":  194,
+        "nome":  "VERTEX STORE 9000",
+        "telefone":  "5511980609000",
+        "localizacao":  "SHOPPING ORIENTAL LN-209",
+        "datas":  "09-11"
+    },
+    {
+        "id":  195,
+        "nome":  "WEE SHOP 5692",
+        "telefone":  "5511946655692",
+        "localizacao":  "SHOPPING ORIENTAL 210",
+        "datas":  "10-11;09-11"
+    },
+    {
+        "id":  196,
+        "nome":  "WILL SOLVE 8188",
+        "telefone":  "5511955558188",
+        "localizacao":  "SHOPPING ORIENTAL 201",
+        "datas":  "10-11;09-11"
+    },
+    {
+        "id":  197,
+        "nome":  "WINGY CELL 6600",
+        "telefone":  "5511910616600",
+        "localizacao":  "SHOPPING ORIENTAL LN-216",
+        "datas":  "10-11;09-11"
+    },
+    {
+        "id":  198,
+        "nome":  "WJR 6375",
+        "telefone":  "5511987676375",
+        "localizacao":  "GALERIA PAGÉ SALA 116",
+        "datas":  "11-11;10-11;09-11"
+    },
+    {
+        "id":  199,
+        "nome":  "X MEN 4408",
+        "telefone":  "5511960844408",
+        "localizacao":  "SHOPPING ORIENTAL 206",
+        "datas":  "10-11;09-11"
+    },
+    {
+        "id":  200,
+        "nome":  "YASSINE IMPORT 1040",
+        "telefone":  "96171361040",
+        "localizacao":  "SHOPPING ORIENTAL 222C",
+        "datas":  "10-11;09-11"
+    },
+    {
+        "id":  201,
+        "nome":  "ZAINO PHONE 9801",
+        "telefone":  "5511945159801",
+        "localizacao":  "SHOPPING ORIENTAL",
+        "datas":  "09-11"
+    },
+    {
+        "id":  202,
+        "nome":  "ZEIN TECH MOBILE 7574",
+        "telefone":  "554599257574",
+        "localizacao":  "SHOPPING ORIENTAL",
+        "datas":  "10-11;09-11"
+    },
+    {
+        "id":  203,
+        "nome":  "ZEINEDDINE SHOP 3333",
+        "telefone":  "5511927793333",
+        "localizacao":  "SHOPPING ORIENTAL LN226",
+        "datas":  "10-11;09-11"
+    },
+    {
+        "id":  204,
+        "nome":  "ZOI CELL 9959",
+        "telefone":  "5511945559995",
+        "localizacao":  "SHOPPING ORIENTAL LN-222T",
+        "datas":  "11-11;10-11;09-11"
+    }
+]

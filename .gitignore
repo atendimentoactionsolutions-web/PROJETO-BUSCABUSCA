@@ -1,0 +1,6 @@
+node_modules/
+auth_session/
+__pycache__/
+*.pyc
+*.log
+qr_whatsapp.png
