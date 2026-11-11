@@ -38,7 +38,7 @@ try {
 
 const baileysModule = await import('@whiskeysockets/baileys');
 const makeWASocket = baileysModule.makeWASocket || baileysModule.default;
-const { useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion } = baileysModule;
+const { useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion, downloadMediaMessage } = baileysModule;
 
 const app = express();
 app.use(express.json({ limit: '10mb' }));
@@ -492,14 +492,34 @@ async function getGroupDetails(groupJid) {
   return { subject: groupSubjectCache.get(groupJid) || '', isCommunity: false };
 }
 
+function hasImageInMessage(m) {
+  if (!m || typeof m !== 'object') return false;
+  if (m.imageMessage) return true;
+  if (m.ephemeralMessage?.message) return hasImageInMessage(m.ephemeralMessage.message);
+  if (m.viewOnceMessage?.message) return hasImageInMessage(m.viewOnceMessage.message);
+  if (m.viewOnceMessageV2?.message) return hasImageInMessage(m.viewOnceMessageV2.message);
+  return false;
+}
+
 async function forwardMessageToProductParser(msg) {
   try {
     if (!msg || !msg.message) return false;
     const text = extractPlainTextFromMessage(msg.message);
-    if (!text || text.trim().length < 8) return false;
+    const hasImg = hasImageInMessage(msg.message);
+    if ((!text || text.trim().length < 8) && !hasImg) return false;
 
     const remoteJid = msg.key?.remoteJid || '';
     if (remoteJid === 'status@broadcast') return false;
+
+    let imageBase64 = '';
+    if (hasImg && downloadMediaMessage) {
+      try {
+        const buf = await downloadMediaMessage(msg, 'buffer', {});
+        if (buf && Buffer.isBuffer(buf) && buf.length > 0 && buf.length < 6 * 1024 * 1024) {
+          imageBase64 = buf.toString('base64');
+        }
+      } catch {}
+    }
 
     const isGroup = remoteJid.endsWith('@g.us');
     const isBroadcast = !!(msg.broadcast || msg.key?.remoteJid?.endsWith('@broadcast'));
@@ -535,7 +555,8 @@ async function forwardMessageToProductParser(msg) {
     }
 
     const payload = {
-      text,
+      text: text || '',
+      imageBase64,
       remoteJid: resolvedRemoteJid,
       participantJid,
       pushName: pushName || savedContactName,

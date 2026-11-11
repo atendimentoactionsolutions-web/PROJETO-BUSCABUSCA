@@ -163,12 +163,12 @@ def upsert_parsed_products(new_items):
     if not new_items:
         return 0
     atuais = load_produtos()
-    # Chave única por Data + Fornecedor + Modelo + Capacidade + Cor + Condição para atualizar preço no mesmo dia
+    # Chave única por Data + Fornecedor + Modelo + Capacidade + Cor para atualizar preço e condição no mesmo dia
     index_map = {}
     for i, item in enumerate(atuais):
         k = (
             f"{item.get('data')}|{item.get('fornecedor')}|{item.get('modelo')}|"
-            f"{item.get('capacidade')}|{item.get('cor')}|{item.get('condicao')}"
+            f"{item.get('capacidade')}|{item.get('cor')}"
         )
         index_map[k] = i
 
@@ -176,7 +176,7 @@ def upsert_parsed_products(new_items):
     for item in new_items:
         k = (
             f"{item.get('data')}|{item.get('fornecedor')}|{item.get('modelo')}|"
-            f"{item.get('capacidade')}|{item.get('cor')}|{item.get('condicao')}"
+            f"{item.get('capacidade')}|{item.get('cor')}"
         )
         item["id"] = f"{int(time.time() * 1000)}_{random.randint(100, 999)}_{count}"
         if k in index_map:
@@ -1713,9 +1713,10 @@ class PanelHandler(BaseHTTPRequestHandler):
             participant_jid = str(body.get("participantJid", ""))
             push_name = str(body.get("pushName", ""))
             group_name = str(body.get("groupName", ""))
+            image_base64 = str(body.get("imageBase64", "")).strip()
 
             sup_name, sup_phone = identify_supplier(participant_jid, remote_jid, push_name, group_name, text)
-            items = parse_supplier_message(text, sup_name, sup_phone, group_name or push_name)
+            items = parse_supplier_message(text, sup_name, sup_phone, group_name or push_name, image_base64=image_base64)
             if items:
                 try:
                     raw_log_path = os.path.join(BASE_DIR, "ultimas_listas_brutas.json")

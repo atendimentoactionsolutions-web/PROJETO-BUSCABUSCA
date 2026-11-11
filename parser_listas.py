@@ -1,4 +1,8 @@
+import base64
+import os
 import re
+import subprocess
+import tempfile
 import time
 
 # Mapeamento de cores comuns nas listas da Santa Efigênia / Shopping Oriental
@@ -75,10 +79,19 @@ COLOR_ALIASES = {
 }
 
 SEMINOVO_KEYWORDS = [
-    "SEMINOVO", "SEMI NOVO", "SEMI-NOVO", "VITRINE", "SWAP",
-    "USADO", "AS IS", "ASIS", "GRADE A", "GRADE B", "RECONDICIONADO",
+    "SEMINOVO", "SEMINOVOS", "SEMI NOVO", "SEMI-NOVO", "VITRINE", "MOSTRUARIO", "MOSTRUÁRIO", "SWAP",
+    "USADO", "USADOS", "AS IS", "ASIS", "GRADE A", "GRADE A+", "GRADE B", "RECONDICIONADO",
+    "ABERTO", "ATIVADO", "SEM CAIXA", "S/ CAIXA", "C/ CAIXA", "COM CAIXA", "DETALHE", "MARCA DE USO",
+    "SAUDE DA BATERIA", "SAÚDE DA BATERIA", "CAPACIDADE MAXIMA", "CAPACIDADE MÁXIMA",
     "BAT 8", "BAT 9", "BAT 100", "BATERIA 8", "BATERIA 9", "BATERIA 100",
-    "85%", "86%", "87%", "88%", "89%", "90%", "91%", "92%", "93%", "94%", "95%", "98%", "99%"
+    "80%", "81%", "82%", "83%", "84%", "85%", "86%", "87%", "88%", "89%",
+    "90%", "91%", "92%", "93%", "94%", "95%", "96%", "97%", "98%", "99%", "100% BAT"
+]
+
+NOVO_LACRADO_KEYWORDS = [
+    "NOVO, LACRADO", "NOVO LACRADO", "NOVOS LACRADOS", "100% LACRADO", "LACRADO DE FABRICA",
+    "LACRADO DE FÁBRICA", "GARANTIA DE 1 ANO APPLE", "1 ANO DE GARANTIA", "GARANTIA APPLE 1 ANO",
+    "LINHA LACRADA", "TABELA LACRADOS", "APARELHO LACRADO", "CAIXA LACRADA", "LACRADO"
 ]
 
 PRODUCT_KEYWORDS = [
@@ -88,6 +101,78 @@ PRODUCT_KEYWORDS = [
     "REDMI", "POCO", "XIAOMI", "REALME", "GALAXY", "SAMSUNG", "MOTO ", "MOTOROLA", "INFINIX", "HONOR", "TECNO",
     "PS5", "PLAYSTATION", "XBOX", "NINTENDO", "SWITCH", "JBL", "STARLINK", "GARMIN", "GOPRO", "DJI"
 ]
+
+
+def strip_tradein_disclaimers(text):
+    """
+    Remove frases de rodapé como 'Aceitamos seu iPhone usado como parte do pagamento'
+    para nunca confundir a condição do produto anunciado com o aviso de troca.
+    """
+    if not text:
+        return ""
+    cleaned_lines = []
+    for line in text.splitlines():
+        u = line.upper()
+        if any(
+            phrase in u
+            for phrase in [
+                "ACEITAMOS SEU",
+                "SEU IPHONE USADO",
+                "SEU USADO",
+                "PARTE DO PAGAMENTO",
+                "MEDIANTE AVALIA",
+                "PEGAMOS SEU",
+                "NA TROCA",
+            ]
+        ):
+            continue
+        cleaned_lines.append(line)
+    return "\n".join(cleaned_lines)
+
+
+def analyze_product_image(image_base64):
+    """
+    Analisa a foto enviada pelo fornecedor (via OCR Tesseract + inspeção visual)
+    para extrair texto da imagem e identificar se a foto mostra um produto
+    Novo/Lacrado ou Seminovo (ex: print de Saúde da Bateria, aparelho fora da caixa, tabela de seminovos).
+    """
+    if not image_base64:
+        return {"ocr_text": "", "image_condition": None}
+
+    try:
+        raw_b64 = re.sub(r"^data:image/\w+;base64,", "", image_base64.strip())
+        img_bytes = base64.b64decode(raw_b64)
+        with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp:
+            tmp.write(img_bytes)
+            tmp_path = tmp.name
+
+        ocr_text = ""
+        try:
+            proc = subprocess.run(
+                ["tesseract", tmp_path, "stdout", "-l", "por+eng", "--psm", "6"],
+                capture_output=True,
+                text=True,
+                timeout=8,
+            )
+            ocr_text = (proc.stdout or "").strip()
+        except Exception:
+            ocr_text = ""
+        finally:
+            try:
+                os.remove(tmp_path)
+            except Exception:
+                pass
+
+        u_ocr = strip_tradein_disclaimers(ocr_text).upper()
+        img_cond = None
+        if any(k in u_ocr for k in SEMINOVO_KEYWORDS):
+            img_cond = "Seminovo"
+        elif any(k in u_ocr for k in NOVO_LACRADO_KEYWORDS):
+            img_cond = "Novo / Lacrado"
+
+        return {"ocr_text": ocr_text, "image_condition": img_cond}
+    except Exception:
+        return {"ocr_text": "", "image_condition": None}
 
 
 def clean_line(line):
@@ -163,27 +248,52 @@ def extract_color(text):
     return "-"
 
 
-def is_seminovo(text, section_is_seminovo=False):
-    if section_is_seminovo:
-        return True
-    upper = text.upper()
+def is_seminovo(text, section_is_seminovo=False, model_name="", price=None, explicit_novo_in_msg=False):
+    """
+    Determina com precisão se o item é Seminovo ou Novo/Lacrado analisando:
+    1) Palavras-chave na linha (Seminovo, Vitrine, Swap, % bateria, As Is, Grade A/B)
+    2) Contexto da seção ou mensagem completa (e OCR da foto se houver)
+    3) Verificação de sanidade para modelos descontinuados (iPhone 11, 12, 13, 14 Pro) ou preços típicos de seminovo
+    """
+    upper = strip_tradein_disclaimers(text).upper()
     for kw in SEMINOVO_KEYWORDS:
         if kw in upper:
             return True
+
+    if any(kw in upper for kw in NOVO_LACRADO_KEYWORDS):
+        return False
+
+    if section_is_seminovo:
+        return True
+
+    # Verificação de segurança para modelos de iPhone que só circulam como Seminovo/Vitrine/Swap se não estiver explícito "LACRADO"
+    m_up = (model_name or "").upper()
+    if "IPHONE" in m_up and not explicit_novo_in_msg:
+        if any(x in m_up for x in ["IPHONE 11", "IPHONE 12", "IPHONE 13 PRO", "IPHONE 14 PRO", "IPHONE XR", "IPHONE XS"]):
+            return True
+        if price is not None:
+            if "IPHONE 13" in m_up and price <= 2800:
+                return True
+            if "IPHONE 14" in m_up and price <= 3100:
+                return True
+            if "IPHONE 15 PRO MAX" in m_up and price <= 5200:
+                return True
+            if "IPHONE 15" in m_up and "PRO" not in m_up and price <= 3300:
+                return True
+
     return False
 
 
 def is_shorthand_iphone_line(line):
     """
-    Detecta cabeçalhos curtos de iPhone onde o fornecedor omite a palavra IPHONE,
-    ex: '15 128GB', '15 PRO MAX 256GB', '16 PRO 128GB', '17 AIR 256GB', '16E 128GB'
+    Detecta cabeçalhos curtos de iPhone onde o fornecedor omite a palavra IPHONE ou GB,
+    ex: '15 128GB', '15 128', '15 PRO MAX 256GB', '16 PRO 128', '17 AIR 256GB', '16E 128'
     """
     u = line.upper().strip()
     if re.match(
         r"^(?:IPHONE\s+|IP\s+|IPH\s+)?(1[1-8](?:E)?)\s*(?:(AIR|MINI|PLUS|PRO\s*MAX|PRO|PM|DUO))?\s*(?:(64|128|256|512|1024)\s*(?:GB|G)?|([124])\s*TB)?(?:\s+(?:LL/A|HN/A|CH/A|JA/A|BR/A|ZP/A|AH/A|E-SIM|ESIM|ANATEL))?\s*$",
         u,
     ):
-        # Precisa ter variante (PRO, PRO MAX, PLUS, AIR, E) ou capacidade explícita (128GB, 256GB...)
         if any(x in u for x in ["PRO", "MAX", "PLUS", "AIR", "MINI", "16E", "17E", "GB", "TB", "64", "128", "256", "512"]):
             return True
     return False
@@ -191,30 +301,27 @@ def is_shorthand_iphone_line(line):
 
 def normalize_model_name(raw_text):
     upper = raw_text.upper().strip()
-
-    # Ignorar se for apenas "LINHA IPHONE 15" (título de seção genérico)
     upper = re.sub(r"^\bLINHA\s+", "", upper)
 
-    # Remover preço do texto
     upper = re.sub(r"(?:R\$|\$)\s*\d{1,2}\.\d{3}(?:,\d{2})?", " ", upper)
     upper = re.sub(r"(?:R\$|\$)\s*\d{3,5}(?:,\d{2})?", " ", upper)
     upper = re.sub(r"\b\d{1,2}\.\d{3}(?:,\d{2})?\b", " ", upper)
     upper = re.sub(r"(?:[\-\:\=])\s*\d{3,5}(?:,\d{2})?\s*$", " ", upper)
     upper = re.sub(r"\s+\d{3,5}\s*$", " ", upper)
 
-    # Se começa direto com 11..18 (ex: "15 PRO MAX 256GB" ou "16 128GB"), prefixar IPHONE
     if re.match(r"^(1[1-8](?:E)?)\b", upper):
         upper = "IPHONE " + upper
 
-    # Padronizar abreviações de iPhone (IP 15 -> IPHONE 15, IPH 16 -> IPHONE 16, PM -> PRO MAX)
     upper = re.sub(r"\b(?:IPH|IP)\s*(1[1-8](?:E)?|[78]|X[RS]?|SE)\b", r"IPHONE \1", upper)
     upper = re.sub(r"\b(IPHONE\s+1[1-8])\s+PM\b", r"\1 PRO MAX", upper)
 
-    # Remover cores conhecidas do nome do modelo para padronizar o agrupamento
     for key in sorted(COLOR_ALIASES.keys(), key=len, reverse=True):
         upper = re.sub(r"\b" + re.escape(key) + r"\b", " ", upper)
 
-    # Remover capacidades do nome base para não duplicar
+    for kw in SEMINOVO_KEYWORDS:
+        if len(kw) >= 4:
+            upper = re.sub(r"\b" + re.escape(kw) + r"\b", " ", upper)
+
     upper = re.sub(r"\b\d{1,2}\s*/\s*(?:64|128|256|512|1024)\s*(?:GB|G)?\b", " ", upper)
     upper = re.sub(r"\b(?:32|64|128|256|512|1024)\s*(?:GB|G)\b", " ", upper)
     upper = re.sub(r"\b[124]\s*TB\b", " ", upper)
@@ -252,37 +359,55 @@ def looks_like_product_header(line):
     return False
 
 
-def parse_supplier_message(text, supplier_name, supplier_phone, group_name="", date_str=None):
-    if not text or len(text.strip()) < 6:
+def parse_supplier_message(text, supplier_name, supplier_phone, group_name="", date_str=None, image_base64=None):
+    """
+    Lê a mensagem completa (e analisa a foto via OCR se houver) para separar com precisão absoluta
+    o que é Novo / Lacrado e o que é Seminovo, em todas as categorias.
+    """
+    img_info = analyze_product_image(image_base64) if image_base64 else {"ocr_text": "", "image_condition": None}
+    combined_raw = (text or "").strip()
+    if img_info.get("ocr_text"):
+        combined_raw = combined_raw + "\n" + img_info["ocr_text"]
+
+    if not combined_raw or len(combined_raw.strip()) < 6:
         return []
 
     if not date_str:
         date_str = time.strftime("%d/%m/%Y")
     time_str = time.strftime("%H:%M:%S")
 
-    lines = [clean_line(l) for l in text.splitlines()]
+    # Remover avisos de troca ("Aceitamos seu iPhone usado como parte do pagamento...")
+    clean_full_text = strip_tradein_disclaimers(combined_raw)
+    upper_all = clean_full_text.upper()
+
+    # Analisar condição global da mensagem + foto
+    has_explicit_seminovo = any(k in upper_all for k in SEMINOVO_KEYWORDS) or (img_info.get("image_condition") == "Seminovo")
+    has_explicit_novo = any(k in upper_all for k in NOVO_LACRADO_KEYWORDS) or (img_info.get("image_condition") == "Novo / Lacrado")
+
+    # Se a mensagem inteira é sobre Seminovo (e não é uma lista mista com seção "LACRADOS")
+    section_seminovo = bool(has_explicit_seminovo and not has_explicit_novo)
+
+    lines = [clean_line(l) for l in clean_full_text.splitlines()]
     lines = [l for l in lines if len(l) >= 2]
 
     parsed_products = []
     current_header_model = ""
     current_header_capacity = "-"
     current_header_color = "-"
-    upper_all = text.upper()
-    section_seminovo = ("SEMINOVO" in upper_all and "NOVO, LACRADO" not in upper_all and "LACRADO" not in upper_all)
 
     for line in lines:
         u = line.upper()
 
-        if any(k in u for k in ["SEMINOVO", "SEMI NOVO", "SEMI-NOVO", "VITRINE", "SWAP", "AS IS", "USADOS"]):
+        # Mudança de seção explícita dentro de uma lista grande
+        if any(k in u for k in ["SEMINOVO", "SEMINOVOS", "SEMI NOVO", "SEMI-NOVO", "VITRINE", "SWAP", "AS IS", "USADOS", "TABELA SEMINOVOS", "LINHA SEMINOVOS"]):
             if extract_price_from_line(line) is None and not looks_like_product_header(line):
                 section_seminovo = True
                 continue
-        if any(k in u for k in ["LACRADO", "LACRADOS", "NOVOS", "APPLE NOVO", "LINHA LACRADA"]):
+        if any(k in u for k in ["LACRADO", "LACRADOS", "NOVOS", "APPLE NOVO", "LINHA LACRADA", "GARANTIA 1 ANO", "NOVO LACRADO"]):
             if extract_price_from_line(line) is None and not looks_like_product_header(line):
                 section_seminovo = False
                 continue
 
-        # Ignorar linhas que são apenas "LINHA IPHONE 15" sem capacidade nem variante
         if re.match(r"^LINHA\s+IPHONE\s+\d+\s*$", u):
             current_header_model = normalize_model_name(u)
             current_header_capacity = "-"
@@ -292,13 +417,15 @@ def parse_supplier_message(text, supplier_name, supplier_phone, group_name="", d
         price = extract_price_from_line(line)
         has_product_kw = looks_like_product_header(line)
 
-        # Caso 1: Cabeçalho de modelo sem preço (ex: "📱 IPHONE 16 PRO MAX 256GB" ou "📱 iPhone 15 Pro Max 512GB Natural")
+        # Caso 1: Cabeçalho de modelo sem preço (ex: "📱 IPHONE 16 PRO MAX 256GB" ou "15 128" ou "📱 iPhone 15 Pro Max 512GB Natural")
         if has_product_kw and price is None:
             current_header_model = normalize_model_name(line)
             current_header_capacity = extract_capacity(line)
             current_header_color = extract_color(line)
-            if is_seminovo(line):
+            if any(k in u for k in SEMINOVO_KEYWORDS):
                 section_seminovo = True
+            elif any(k in u for k in NOVO_LACRADO_KEYWORDS):
+                section_seminovo = False
             continue
 
         # Caso 2: Linha tem nome de produto E tem preço na mesma linha
@@ -308,7 +435,7 @@ def parse_supplier_message(text, supplier_name, supplier_phone, group_name="", d
                 continue
             cap = extract_capacity(line)
             color = extract_color(line)
-            sem = is_seminovo(line, section_seminovo)
+            sem = is_seminovo(line, section_seminovo, model, price, has_explicit_novo)
             cat = classify_category(model, line, sem)
 
             current_header_model = model
@@ -339,7 +466,7 @@ def parse_supplier_message(text, supplier_name, supplier_phone, group_name="", d
             cap_line = extract_capacity(line)
             cap = cap_line if cap_line != "-" else current_header_capacity
             if color != "-" or len(line) <= 35:
-                sem = is_seminovo(line, section_seminovo)
+                sem = is_seminovo(line, section_seminovo, current_header_model, price, has_explicit_novo)
                 cat = classify_category(current_header_model, line, sem)
                 norm_line = normalize_model_name(line)
                 if norm_line in ("VALOR", "PRECO", "POR", "A VISTA", "AVISTA", "PIX", ""):
