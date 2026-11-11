@@ -20,6 +20,7 @@ COLOR_ALIASES = {
     "GRAPHITE": "GRAFITE",
     "GRAFITE": "GRAFITE",
     "STAR WHITE": "BRANCO",
+    "CLOUD WHITE": "BRANCO",
     "WHITE": "BRANCO",
     "BRANCO": "BRANCO",
     "BRANCA": "BRANCO",
@@ -34,8 +35,10 @@ COLOR_ALIASES = {
     "DESERT": "DESERT TITÂNIO",
     "DESERT TITANIUM": "DESERT TITÂNIO",
     "TITANIO DESERT": "DESERT TITÂNIO",
+    "LIGHT GOLD": "DOURADO",
     "GOLD": "DOURADO",
     "DOURADO": "DOURADO",
+    "SOFT PINK": "ROSA",
     "ROSE": "ROSA",
     "ROSE GOLD": "ROSA",
     "PINK": "ROSA",
@@ -44,6 +47,7 @@ COLOR_ALIASES = {
     "LAVENDER": "LAVANDA",
     "GLACIER": "GLACIER",
     "BURGUNDY": "BURGUNDY",
+    "DEEP BLUE": "AZUL",
     "BLUE": "AZUL",
     "AZUL": "AZUL",
     "ULTRAMARINE": "AZUL ULTRAMARINO",
@@ -64,6 +68,7 @@ COLOR_ALIASES = {
     "VERMELHO": "VERMELHO",
     "YELLOW": "AMARELO",
     "AMARELO": "AMARELO",
+    "COSMIC ORANGE": "LARANJA",
     "ORANGE": "LARANJA",
     "LARANJA": "LARANJA",
     "TITANIUM": "TITÂNIO",
@@ -261,7 +266,9 @@ def parse_supplier_message(text, supplier_name, supplier_phone, group_name="", d
     parsed_products = []
     current_header_model = ""
     current_header_capacity = "-"
-    section_seminovo = False
+    current_header_color = "-"
+    upper_all = text.upper()
+    section_seminovo = ("SEMINOVO" in upper_all and "NOVO, LACRADO" not in upper_all and "LACRADO" not in upper_all)
 
     for line in lines:
         u = line.upper()
@@ -279,15 +286,17 @@ def parse_supplier_message(text, supplier_name, supplier_phone, group_name="", d
         if re.match(r"^LINHA\s+IPHONE\s+\d+\s*$", u):
             current_header_model = normalize_model_name(u)
             current_header_capacity = "-"
+            current_header_color = "-"
             continue
 
         price = extract_price_from_line(line)
         has_product_kw = looks_like_product_header(line)
 
-        # Caso 1: Cabeçalho de modelo sem preço (ex: "📱 IPHONE 16 PRO MAX 256GB" ou "15 PRO MAX 256GB" ou "AIRPODS 4")
+        # Caso 1: Cabeçalho de modelo sem preço (ex: "📱 IPHONE 16 PRO MAX 256GB" ou "📱 iPhone 15 Pro Max 512GB Natural")
         if has_product_kw and price is None:
             current_header_model = normalize_model_name(line)
             current_header_capacity = extract_capacity(line)
+            current_header_color = extract_color(line)
             if is_seminovo(line):
                 section_seminovo = True
             continue
@@ -304,6 +313,7 @@ def parse_supplier_message(text, supplier_name, supplier_phone, group_name="", d
 
             current_header_model = model
             current_header_capacity = cap
+            current_header_color = color
 
             parsed_products.append({
                 "modelo": model,
@@ -321,18 +331,25 @@ def parse_supplier_message(text, supplier_name, supplier_phone, group_name="", d
             })
             continue
 
-        # Caso 3: Linha de cor + preço abaixo de um cabeçalho de produto (ex: "⚫ PRETO R$ 7.150")
+        # Caso 3: Linha de cor + preço ou "Valor: R$ ..." abaixo de um cabeçalho de produto
         if not has_product_kw and price is not None and current_header_model:
             color = extract_color(line)
+            if color == "-" and current_header_color != "-":
+                color = current_header_color
             cap_line = extract_capacity(line)
             cap = cap_line if cap_line != "-" else current_header_capacity
             if color != "-" or len(line) <= 35:
                 sem = is_seminovo(line, section_seminovo)
                 cat = classify_category(current_header_model, line, sem)
+                norm_line = normalize_model_name(line)
+                if norm_line in ("VALOR", "PRECO", "POR", "A VISTA", "AVISTA", "PIX", ""):
+                    final_color = color if color != "-" else "PADRÃO"
+                else:
+                    final_color = color if color != "-" else norm_line
                 parsed_products.append({
                     "modelo": current_header_model,
                     "capacidade": cap,
-                    "cor": color if color != "-" else normalize_model_name(line) or "PADRÃO",
+                    "cor": final_color,
                     "categoria": cat,
                     "condicao": "Seminovo" if sem else "Novo / Lacrado",
                     "preco": price,
@@ -341,7 +358,7 @@ def parse_supplier_message(text, supplier_name, supplier_phone, group_name="", d
                     "origem": group_name or supplier_name,
                     "data": date_str,
                     "hora": time_str,
-                    "linhaOriginal": f"{current_header_model} {cap} - {line}",
+                    "linhaOriginal": f"{current_header_model} {cap} ({final_color}) - {line}",
                 })
 
     return parsed_products
