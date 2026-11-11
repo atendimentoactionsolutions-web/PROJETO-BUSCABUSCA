@@ -352,28 +352,18 @@ async function deepScanAllArchivedAndCommunities() {
       if (fs.existsSync(f)) fs.unlinkSync(f);
     }
     await waSocket.resyncAppState(['regular_low', 'regular_high', 'critical_unblock_low'], false);
+    await new Promise((r) => setTimeout(r, 2500));
   } catch (err) {
     addLog(`ℹ️ AppState sync aviso: ${err.message}`);
   }
 
   // 3. Solicitar histórico sob demanda (fetchMessageHistory) de todos os arquivados e comunidades com âncora de mensagem
   let requestedCount = 0;
-  for (const [jid] of monitoredArchivedMap.entries()) {
-    if (realMessageAnchorsMap.has(jid)) {
-      const ok = await requestOnDemandHistoryForChat(jid, 50);
-      if (ok) {
-        requestedCount++;
-        await new Promise((r) => setTimeout(r, 250));
-      }
-    }
-  }
   for (const [jid] of realMessageAnchorsMap.entries()) {
-    if (!monitoredArchivedMap.has(jid) && (jid.endsWith('@g.us') || isKnownOrArchivedJid(jid))) {
-      const ok = await requestOnDemandHistoryForChat(jid, 50);
-      if (ok) {
-        requestedCount++;
-        await new Promise((r) => setTimeout(r, 250));
-      }
+    const ok = await requestOnDemandHistoryForChat(jid, 50);
+    if (ok) {
+      requestedCount++;
+      await new Promise((r) => setTimeout(r, 250));
     }
   }
 
@@ -546,7 +536,7 @@ async function forwardMessageToProductParser(msg) {
 
     const payload = {
       text,
-      remoteJid,
+      remoteJid: resolvedRemoteJid,
       participantJid,
       pushName: pushName || savedContactName,
       groupName,

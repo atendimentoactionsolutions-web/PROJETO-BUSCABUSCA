@@ -125,7 +125,7 @@ def save_produtos(lista):
             json.dump(lista, f, ensure_ascii=False, indent=2)
 
 
-def identify_supplier(participant_jid, remote_jid, push_name, group_name):
+def identify_supplier(participant_jid, remote_jid, push_name, group_name, msg_text=""):
     """
     Cruza o número do remetente ou nome do grupo/comunidade com a base dos 204 fornecedores
     para identificar automaticamente qual fornecedor enviou a lista.
@@ -141,19 +141,21 @@ def identify_supplier(participant_jid, remote_jid, push_name, group_name):
             if len(ftel) >= 8 and ftel[-8:] == tail8:
                 return f.get("nome"), ftel
 
-    # 2. Tentar casar pelo nome do grupo/comunidade ou pushName
-    combined_title = f"{group_name} {push_name}".upper()
+    # 2. Tentar casar pelo nome do grupo/comunidade, pushName ou cabeçalho da mensagem
+    head_text = " ".join((msg_text or "").splitlines()[:4])
+    combined_title = f"{group_name} {push_name} {head_text}".upper()
     for f in fornecedores:
         fnome = str(f.get("nome", "")).upper().strip()
         if not fnome:
             continue
-        # Nome sem os 4 dígitos finais (ex: "BOB CELL 0277" -> "BOB CELL")
         base_name = re.sub(r"\s+\d{3,4}$", "", fnome).strip()
         if len(base_name) >= 4 and base_name in combined_title:
             return f.get("nome"), re.sub(r"\D", "", str(f.get("telefone", "")))
 
-    # 3. Fallback: usar nome do contato arquivado (pushName) ou nome do grupo + telefone do remetente
-    clean_fallback = (push_name or group_name or raw_sender or "FORNECEDOR ARQUIVADO").upper().strip()
+    # 3. Fallback: priorizar nome do grupo/comunidade ou pushName (evitando IDs numéricos puros)
+    clean_group = group_name if (group_name and not group_name.isdigit() and "Arquivado" not in group_name) else ""
+    clean_push = push_name if (push_name and not push_name.isdigit()) else ""
+    clean_fallback = (clean_group or clean_push or group_name or raw_sender or "FORNECEDOR ARQUIVADO").upper().strip()
     return clean_fallback, raw_sender
 
 
@@ -1712,9 +1714,28 @@ class PanelHandler(BaseHTTPRequestHandler):
             push_name = str(body.get("pushName", ""))
             group_name = str(body.get("groupName", ""))
 
-            sup_name, sup_phone = identify_supplier(participant_jid, remote_jid, push_name, group_name)
+            sup_name, sup_phone = identify_supplier(participant_jid, remote_jid, push_name, group_name, text)
             items = parse_supplier_message(text, sup_name, sup_phone, group_name or push_name)
             if items:
+                try:
+                    raw_log_path = os.path.join(BASE_DIR, "ultimas_listas_brutas.json")
+                    raw_list = []
+                    if os.path.exists(raw_log_path):
+                        with open(raw_log_path, "r", encoding="utf-8") as rf:
+                            raw_list = json.load(rf)
+                    raw_list.append({
+                        "supplierName": sup_name,
+                        "supplierPhone": sup_phone,
+                        "remoteJid": remote_jid,
+                        "participantJid": participant_jid,
+                        "pushName": push_name,
+                        "groupName": group_name,
+                        "text": text,
+                    })
+                    with open(raw_log_path, "w", encoding="utf-8") as wf:
+                        json.dump(raw_list[-100:], wf, ensure_ascii=False, indent=2)
+                except Exception:
+                    pass
                 saved = upsert_parsed_products(items)
                 add_panel_log(f"🏷️ {saved} produtos capturados automaticamente de {sup_name} ({group_name or 'WhatsApp'})")
                 self._send_json({"ok": True, "parsedCount": saved, "supplierName": sup_name})
