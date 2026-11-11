@@ -152,9 +152,9 @@ def identify_supplier(participant_jid, remote_jid, push_name, group_name):
         if len(base_name) >= 4 and base_name in combined_title:
             return f.get("nome"), re.sub(r"\D", "", str(f.get("telefone", "")))
 
-    # 3. Fallback: usar nome do grupo ou pushName + telefone do remetente
-    fallback_name = (group_name or push_name or raw_sender or "FORNECEDOR WHATSAPP").upper().strip()
-    return fallback_name, raw_sender
+    # 3. Fallback: usar nome do contato arquivado (pushName) ou nome do grupo + telefone do remetente
+    clean_fallback = (push_name or group_name or raw_sender or "FORNECEDOR ARQUIVADO").upper().strip()
+    return clean_fallback, raw_sender
 
 
 def upsert_parsed_products(new_items):
@@ -1227,10 +1227,10 @@ ADMIN_HTML = """<!DOCTYPE html>
       </div>
     </div>
 
-    <!-- Card 4: Comunidades Entradas e Arquivadas Automaticamente -->
+    <!-- Card 4: Comunidades Entradas e Contatos Arquivados Monitorados -->
     <div class="card">
       <h2>
-        <span>📦 Comunidades, Grupos & Listas de Transmissão (100% Auto-Arquivados)</span>
+        <span>📦 Todos os Contatos, Comunidades, Grupos & Listas Arquivadas Monitorados 24h</span>
         <div style="display:flex;gap:8px;flex-wrap:wrap;">
           <input type="text" id="manualInviteLink" placeholder="Colar link chat.whatsapp.com/... para entrar e arquivar" style="width:300px;font-size:12px;" />
           <button class="btn-ghost" onclick="joinManualCommunity()" style="padding:6px 12px;font-size:12px;">Entrar e Arquivar Agora</button>
@@ -1238,16 +1238,16 @@ ADMIN_HTML = """<!DOCTYPE html>
         </div>
       </h2>
       <p style="margin:0 0 10px 0;font-size:12px;color:#34d399;">
-        ✅ <strong>Monitoramento Triplo Ativo:</strong> 1) Fornecedores com <strong>Comunidade</strong> (entra pelo link e arquiva comunidade + avisos), 2) Fornecedores com <strong>Grupo</strong> (entra/sincroniza e arquiva), 3) Fornecedores com <strong>Lista de Transmissão ou Sem Lista (Chat Direto)</strong> (arquiva a conversa e lê a tabela enviada no privado).
+        ✅ <strong>Monitoramento Total dos Arquivados Ativo:</strong> Todo contato, lista de transmissão, grupo ou comunidade que estiver <strong>arquivado no seu WhatsApp</strong> é monitorado automaticamente 24h por dia para capturar tabelas de preços e links de comunidades!
       </p>
-      <div class="table-wrap" style="max-height:220px;">
+      <div class="table-wrap" style="max-height:240px;">
         <table>
           <thead>
             <tr>
-              <th>Horário</th>
-              <th>Comunidade / Grupo</th>
-              <th>Enviado por</th>
-              <th>Link Capturado</th>
+              <th>Última Atividade</th>
+              <th>Contato / Comunidade / Grupo Arquivado</th>
+              <th>Tipo de Canal</th>
+              <th>Identificador / Link</th>
               <th>Status</th>
             </tr>
           </thead>
@@ -1327,25 +1327,51 @@ ADMIN_HTML = """<!DOCTYPE html>
 
         const wa = data.whatsapp || {};
         const comms = wa.communities || [];
+        const archivedList = wa.archivedMonitored || [];
 
         document.getElementById('stTotal').textContent = data.stats.total;
         document.getElementById('stPending').textContent = data.stats.pending;
         document.getElementById('stSent').textContent = data.stats.sent;
-        document.getElementById('stCommunities').textContent = comms.filter(c => c.status === 'ENTROU_E_ARQUIVOU').length;
+        document.getElementById('stCommunities').textContent = Math.max(
+          comms.filter(c => c.status === 'ENTROU_E_ARQUIVOU').length,
+          archivedList.length
+        );
         document.getElementById('stProducts').textContent = data.stats.productsCount || 0;
         document.getElementById('stErrors').textContent = data.stats.errors;
 
         const commBody = document.getElementById('commTableBody');
-        if (comms.length === 0) {
-          commBody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#94a3b8;">Aguardando links de comunidades nas respostas ou mensagens de saudação dos fornecedores...</td></tr>';
+        const combinedRows = [];
+        for (const c of comms.slice().reverse()) {
+          combinedRows.push({
+            time: c.joinedAt || '-',
+            name: c.groupName || 'Comunidade',
+            type: c.senderName || 'Comunidade / Grupo',
+            id: c.link || c.code || '-',
+            status: c.status === 'ENTROU_E_ARQUIVOU' ? '✅ ENTROU E ARQUIVOU' : (c.status || 'ATIVO')
+          });
+        }
+        for (const a of archivedList.slice().reverse()) {
+          if (!combinedRows.some(r => r.name === a.name || r.id === a.jid)) {
+            combinedRows.push({
+              time: a.lastActivity || '-',
+              name: a.name || a.jid,
+              type: a.type || 'Contato Arquivado',
+              id: a.jid || '-',
+              status: '👁️ MONITORANDO ARQUIVADO'
+            });
+          }
+        }
+
+        if (combinedRows.length === 0) {
+          commBody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#94a3b8;">Conecte o WhatsApp para sincronizar todos os seus contatos, listas e grupos arquivados automaticamente...</td></tr>';
         } else {
-          commBody.innerHTML = comms.slice().reverse().map(c => (
+          commBody.innerHTML = combinedRows.map(r => (
             '<tr>' +
-              '<td style="color:#94a3b8;font-size:12px;">' + (c.joinedAt || '-') + '</td>' +
-              '<td><strong>' + (c.groupName || 'Comunidade') + '</strong></td>' +
-              '<td>' + (c.senderName || '-') + '</td>' +
-              '<td><code>' + (c.link || c.code) + '</code></td>' +
-              '<td><span class="pill ' + (c.status || 'ENVIADO') + '">' + (c.status === 'ENTROU_E_ARQUIVOU' ? '✅ ENTROU E ARQUIVOU' : c.status) + '</span></td>' +
+              '<td style="color:#94a3b8;font-size:12px;">' + r.time + '</td>' +
+              '<td><strong>' + r.name + '</strong></td>' +
+              '<td>' + r.type + '</td>' +
+              '<td><code>' + r.id + '</code></td>' +
+              '<td><span class="pill ENTROU_E_ARQUIVOU">' + r.status + '</span></td>' +
             '</tr>'
           )).join('');
         }
@@ -1621,11 +1647,13 @@ class PanelHandler(BaseHTTPRequestHandler):
             try:
                 wa = bridge_get("/api/status")
                 comms = wa.get("communities", [])
+                archived_cnt = int(wa.get("archivedMonitoredCount", 0))
             except Exception:
                 comms = []
+                archived_cnt = 0
             self._send_json({
                 "products": produtos,
-                "communitiesCount": len([c for c in comms if c.get("status") == "ENTROU_E_ARQUIVOU"]),
+                "communitiesCount": max(len([c for c in comms if c.get("status") == "ENTROU_E_ARQUIVOU"]), archived_cnt),
             })
             return
 
