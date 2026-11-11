@@ -38,7 +38,7 @@ try {
 
 const baileysModule = await import('@whiskeysockets/baileys');
 const makeWASocket = baileysModule.makeWASocket || baileysModule.default;
-const { useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion } = baileysModule;
+const { useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion, downloadMediaMessage } = baileysModule;
 
 const app = express();
 app.use(express.json({ limit: '10mb' }));
@@ -152,10 +152,28 @@ function registerMonitoredArchivedChat(jid, info = {}) {
     contactNameCache.get(resolvedJid) ||
     resolvedJid.split('@')[0];
 
+  // NÃO registrar grupos com nomes banidos ou ifindz
+  if (!isSafeGroupName(name, jid)) {
+    monitoredArchivedMap.delete(jid);
+    return;
+  }
+
+  // Se for grupo, só monitora se for fornecedor ou comunidade oficial cadastrada
+  if (isGroup && !isKnownSupplierJid(jid) && !joinedCommunitiesMap.has(jid)) {
+    monitoredArchivedMap.delete(jid);
+    return;
+  }
+
+  // Se for conversa individual, só monitora se for dos 204 fornecedores
+  if (!isGroup && !isKnownSupplierJid(jid) && !isKnownSupplierJid(resolvedJid)) {
+    monitoredArchivedMap.delete(jid);
+    return;
+  }
+
   const record = {
     jid,
     name,
-    type: info.type || existing.type || (isGroup ? 'Grupo / Comunidade Arquivada' : 'Contato Arquivado no WhatsApp'),
+    type: info.type || existing.type || (isGroup ? 'Comunidade Fornecedor' : 'Fornecedor Arquivado'),
     lastActivity: info.lastActivity || existing.lastActivity || new Date().toLocaleString('pt-BR'),
     productsCaptured: (existing.productsCaptured || 0) + (info.addProducts || 0),
     status: 'MONITORANDO ARQUIVADO'
@@ -165,7 +183,7 @@ function registerMonitoredArchivedChat(jid, info = {}) {
 
 function saveMonitoredArchived() {
   try {
-    const arr = Array.from(monitoredArchivedMap.values());
+    const arr = Array.from(monitoredArchivedMap.values()).filter(a => isSafeGroupName(a.name, a.jid));
     fs.writeFileSync(archivedMonitoredFile, JSON.stringify(arr, null, 2), 'utf-8');
   } catch {}
 }
@@ -204,12 +222,21 @@ function loadKnownSuppliers() {
             if (sName) contactNameCache.set(sJid, sName);
           }
         }
-        addLog(`📋 ${arr.length} fornecedores carregados na memória para identificação e auto-arquivamento.`);
+        addLog(`[LISTA] ${arr.length} fornecedores carregados na memória para identificação e auto-arquivamento.`);
       }
     }
   } catch (err) {
     addLog(`Erro ao carregar fornecedores: ${err.message}`);
   }
+}
+
+function isKnownSupplierJid(jid) {
+  if (!jid) return false;
+  const userPart = jid.split('@')[0].split(':')[0];
+  for (const v of normalizePhoneDigits(userPart)) {
+    if (knownSupplierDigits.has(v)) return true;
+  }
+  return false;
 }
 
 function isKnownOrArchivedJid(jid) {
@@ -247,9 +274,22 @@ function loadJoinedCommunities() {
   }
 }
 
+const GROUP_BLACKLIST = [
+  'universo feminino', 'miga', 'desapeg', 'feira do rolo', 'compra e venda',
+  'compras e vendas', 'doacao', 'brecho', 'ifindz', 'divulga', 'brechó', 'doação',
+  'bazar', 'renda extra', 'afiliado', 'cassino', 'tigre', 'aposta', 'bet'
+];
+
+function isSafeGroupName(name, jid) {
+  const n = (name || '').toLowerCase();
+  const j = (jid || '').toLowerCase();
+  if (j.includes('status@broadcast')) return false;
+  return !GROUP_BLACKLIST.some(b => n.includes(b) || j.includes(b));
+}
+
 function saveJoinedCommunities() {
   try {
-    const arr = Array.from(joinedCommunitiesMap.values());
+    const arr = Array.from(joinedCommunitiesMap.values()).filter(c => isSafeGroupName(c.groupName || c.link, c.groupJid || c.senderJid));
     fs.writeFileSync(communitiesFile, JSON.stringify(arr, null, 2), 'utf-8');
   } catch (err) {
     addLog(`Erro ao salvar comunidades: ${err.message}`);
@@ -284,7 +324,7 @@ async function archiveChatJid(chatJid, reason = '', customName = '', customType 
         messageTimestamp: Number(lastMsg.messageTimestamp || nowSec)
       };
       await waSocket.chatModify({ archive: true, lastMessages: [safeMsg] }, chatJid);
-      if (reason) addLog(`📦 Arquivado e monitorado (${chatJid}) ${reason}`);
+      if (reason) addLog(`[ARQUIVO] Arquivado e monitorado (${chatJid}) ${reason}`);
       return true;
     } catch {}
   }
@@ -313,7 +353,7 @@ async function archiveChatJid(chatJid, reason = '', customName = '', customType 
       },
       chatJid
     );
-    if (reason) addLog(`📦 Arquivado e monitorado (${chatJid}) ${reason}`);
+    if (reason) addLog(`[ARQUIVO] Arquivado e monitorado (${chatJid}) ${reason}`);
     return true;
   } catch {
     return false;
@@ -340,7 +380,7 @@ async function requestOnDemandHistoryForChat(jid, count = 45) {
 // Vistoria completa: sincroniza todos os contatos/grupos arquivados no aparelho e puxa o histórico de mensagens deles
 async function deepScanAllArchivedAndCommunities() {
   if (!waSocket || connectionStatus !== 'CONNECTED') return { ok: false, error: 'WhatsApp não conectado' };
-  addLog('🔎 Iniciando VISTORIA COMPLETA nos Contatos Arquivados, Comunidades e Grupos...');
+  addLog('[BUSCA] Iniciando VISTORIA COMPLETA nos Contatos Arquivados, Comunidades e Grupos...');
 
   // 1. Sincronizar metadados de todos os grupos/comunidades participantes
   await syncAndArchiveAllParticipatingGroups();
@@ -367,7 +407,7 @@ async function deepScanAllArchivedAndCommunities() {
     }
   }
 
-  addLog(`📡 Vistoria: ${monitoredArchivedMap.size} arquivados/comunidades mapeados e ${requestedCount} pedidos de histórico enviados ao aparelho.`);
+  addLog(`[VISTORIA] Vistoria: ${monitoredArchivedMap.size} arquivados/comunidades mapeados e ${requestedCount} pedidos de histórico enviados ao aparelho.`);
   return {
     ok: true,
     monitoredCount: monitoredArchivedMap.size,
@@ -387,31 +427,32 @@ async function syncAndArchiveAllParticipatingGroups() {
       if (!g || !g.id) continue;
       groupMetaCache.set(g.id, g);
       if (g.subject) groupSubjectCache.set(g.id, g.subject);
+
+      // Bloquear grupos não autorizados (desapego, feira do rolo, ifindz, etc.)
+      if (!isSafeGroupName(g.subject, g.id)) continue;
+
+      // Monitorar apenas grupos de fornecedores identificados
+      const isSupplierGroup = isKnownSupplierJid(g.owner) || isKnownSupplierJid(g.id) || joinedCommunitiesMap.has(g.id);
+      if (!isSupplierGroup) continue;
+
       const isComm = !!(g.isCommunity || g.isCommunityAnnounce || g.linkedParent);
-      await archiveChatJid(g.id, '', g.subject || 'Grupo / Comunidade', isComm ? 'Comunidade' : 'Grupo', false);
-      if (g.linkedParent) {
-        await archiveChatJid(g.linkedParent, '', `${g.subject || 'Comunidade'} (Mãe)`, 'Comunidade-Mãe', false);
-      }
-      if (!joinedCommunitiesMap.has(g.id) && !Array.from(joinedCommunitiesMap.values()).some((x) => x.groupJid === g.id)) {
+      if (!joinedCommunitiesMap.has(g.id)) {
         joinedCommunitiesMap.set(g.id, {
           code: g.id,
-          link: isComm ? 'Comunidade Participante' : 'Grupo Participante',
+          link: isComm ? 'Comunidade Oficial' : 'Grupo Oficial',
           groupJid: g.id,
           linkedParent: g.linkedParent || '',
-          groupName: g.subject || 'Grupo / Comunidade',
-          senderJid: g.owner || 'Sincronizado',
+          groupName: g.subject || 'Grupo Fornecedor',
+          senderJid: g.owner || 'Fornecedor',
           senderName: isComm ? 'Comunidade' : 'Grupo',
-          status: 'ENTROU_E_ARQUIVOU',
+          status: 'MONITORANDO',
           joinedAt: new Date().toLocaleString('pt-BR')
         });
       }
       count++;
     }
-    if (count > 0) {
-      saveJoinedCommunities();
-      saveMonitoredArchived();
-      addLog(`📦 Sincronização completa: ${count} grupos/comunidades arquivados e em monitoramento 24h.`);
-    }
+    saveJoinedCommunities();
+    saveMonitoredArchived();
     return count;
   } catch {
     return 0;
@@ -492,14 +533,34 @@ async function getGroupDetails(groupJid) {
   return { subject: groupSubjectCache.get(groupJid) || '', isCommunity: false };
 }
 
+function hasImageInMessage(m) {
+  if (!m || typeof m !== 'object') return false;
+  if (m.imageMessage) return true;
+  if (m.ephemeralMessage?.message) return hasImageInMessage(m.ephemeralMessage.message);
+  if (m.viewOnceMessage?.message) return hasImageInMessage(m.viewOnceMessage.message);
+  if (m.viewOnceMessageV2?.message) return hasImageInMessage(m.viewOnceMessageV2.message);
+  return false;
+}
+
 async function forwardMessageToProductParser(msg) {
   try {
     if (!msg || !msg.message) return false;
     const text = extractPlainTextFromMessage(msg.message);
-    if (!text || text.trim().length < 8) return false;
+    const hasImg = hasImageInMessage(msg.message);
+    if ((!text || text.trim().length < 8) && !hasImg) return false;
 
     const remoteJid = msg.key?.remoteJid || '';
     if (remoteJid === 'status@broadcast') return false;
+
+    let imageBase64 = '';
+    if (hasImg && downloadMediaMessage) {
+      try {
+        const buf = await downloadMediaMessage(msg, 'buffer', {});
+        if (buf && Buffer.isBuffer(buf) && buf.length > 0 && buf.length < 6 * 1024 * 1024) {
+          imageBase64 = buf.toString('base64');
+        }
+      } catch {}
+    }
 
     const isGroup = remoteJid.endsWith('@g.us');
     const isBroadcast = !!(msg.broadcast || msg.key?.remoteJid?.endsWith('@broadcast'));
@@ -508,6 +569,39 @@ async function forwardMessageToProductParser(msg) {
       : (msg.key?.senderPn || msg.key?.remoteJidAlt || remoteJid);
     const participantJid = resolveLidJid(rawParticipant);
     const resolvedRemoteJid = isGroup ? remoteJid : resolveLidJid(remoteJid);
+
+    // Bloqueio rigoroso: ifindz
+    const groupSubject = isGroup ? (groupSubjectCache.get(remoteJid) || '') : '';
+    if (groupSubject.toLowerCase().includes('ifindz') || remoteJid.toLowerCase().includes('ifindz')) {
+      return false;
+    }
+
+    // Regra Estrita: SOMENTE processar mensagens que vierem exclusivamente dos 204 fornecedores da lista
+    const isSupplier = isKnownSupplierJid(remoteJid) || isKnownSupplierJid(participantJid);
+    if (!isSupplier) {
+      return false;
+    }
+
+    // Regra Estrita de Horário: Apenas mensagens do dia de HOJE a partir das 06:00 da manhã
+    const msgTimestamp = Number(msg.messageTimestamp || Math.floor(Date.now() / 1000));
+    const msgDate = new Date(msgTimestamp * 1000);
+    const now = new Date();
+    const brFmt = new Intl.DateTimeFormat('pt-BR', { timeZone: 'America/Sao_Paulo', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
+    const msgParts = brFmt.formatToParts(msgDate);
+    const mDay = msgParts.find(p => p.type === 'day')?.value;
+    const mMonth = msgParts.find(p => p.type === 'month')?.value;
+    const mYear = msgParts.find(p => p.type === 'year')?.value;
+    const mHour = parseInt(msgParts.find(p => p.type === 'hour')?.value || '0', 10);
+
+    const nowParts = brFmt.formatToParts(now);
+    const nDay = nowParts.find(p => p.type === 'day')?.value;
+    const nMonth = nowParts.find(p => p.type === 'month')?.value;
+    const nYear = nowParts.find(p => p.type === 'year')?.value;
+
+    const isToday = (mDay === nDay && mMonth === nMonth && mYear === nYear);
+    if (!isToday || mHour < 6) {
+      return false;
+    }
 
     const savedContactName =
       contactNameCache.get(remoteJid) ||
@@ -535,7 +629,8 @@ async function forwardMessageToProductParser(msg) {
     }
 
     const payload = {
-      text,
+      text: text || '',
+      imageBase64,
       remoteJid: resolvedRemoteJid,
       participantJid,
       pushName: pushName || savedContactName,
@@ -553,7 +648,7 @@ async function forwardMessageToProductParser(msg) {
     if (res.ok) {
       const data = await res.json();
       if (data && data.parsedCount > 0) {
-        addLog(`🏷️ Buscador: ${data.parsedCount} produtos capturados de "${data.supplierName}" (${channelType})`);
+        addLog(`[PRODUTO] Buscador: ${data.parsedCount} produtos capturados de "${data.supplierName}" (${channelType})`);
         registerMonitoredArchivedChat(remoteJid, {
           name: isGroup ? (groupName || data.supplierName) : (data.supplierName || pushName),
           type: channelType,
@@ -583,7 +678,7 @@ async function processInviteCode(code, senderJid = 'Desconhecido', senderName = 
   pendingInviteCodes.add(code);
 
   try {
-    addLog(`🔗 Link de Comunidade/Grupo detectado de ${senderName || senderJid}: https://chat.whatsapp.com/${code}`);
+    addLog(`[LINK] Link de Comunidade/Grupo detectado de ${senderName || senderJid}: https://chat.whatsapp.com/${code}`);
 
     let groupName = 'Comunidade / Grupo Fornecedor';
     let groupJid = null;
@@ -603,7 +698,7 @@ async function processInviteCode(code, senderJid = 'Desconhecido', senderName = 
       try {
         const joinedJid = await waSocket.groupAcceptInvite(code);
         if (joinedJid) groupJid = joinedJid;
-        addLog(`✅ ENTROU AUTOMATICAMENTE em "${groupName}" (${groupJid})`);
+        addLog(`[OK] ENTROU AUTOMATICAMENTE em "${groupName}" (${groupJid})`);
         break;
       } catch (joinErr) {
         const msg = String(joinErr?.message || '');
@@ -663,7 +758,7 @@ async function processInviteCode(code, senderJid = 'Desconhecido', senderName = 
     saveJoinedCommunities();
     return record;
   } catch (err) {
-    addLog(`❌ Erro ao entrar no link https://chat.whatsapp.com/${code}: ${err.message}`);
+    addLog(`[ERRO] Erro ao entrar no link https://chat.whatsapp.com/${code}: ${err.message}`);
     const errRecord = {
       code,
       link: `https://chat.whatsapp.com/${code}`,
@@ -709,17 +804,19 @@ async function inspectIncomingMessage(msg) {
     await archiveChatJid(remoteJid, '', '', '', false);
   }
 
-  // 1. Extrair e entrar em links de comunidades/grupos (inclusive em saudações automáticas)
-  const codes = extractInviteCodesFromMessage(msg.message);
-  for (const code of codes) {
-    await processInviteCode(code, remoteJid, pushName);
+  // 1. Extrair e entrar em links de comunidades/grupos SOMENTE se enviados por um dos 204 fornecedores autorizados
+  if (isKnownSupplierJid(remoteJid)) {
+    const codes = extractInviteCodesFromMessage(msg.message);
+    for (const code of codes) {
+      await processInviteCode(code, remoteJid, pushName);
+    }
   }
 
-  // 2. Verificar convites nativos V4
+  // 2. Convites nativos V4 SOMENTE se enviados por um dos 204 fornecedores autorizados
   const nativeInvite = findNativeGroupInvite(msg.message);
-  if (nativeInvite && nativeInvite.inviteCode) {
+  if (nativeInvite && nativeInvite.inviteCode && isKnownSupplierJid(remoteJid)) {
     try {
-      addLog(`📩 Convite nativo de Grupo/Comunidade recebido de ${pushName || remoteJid}! Aceitando...`);
+      addLog(`[CONVITE] Convite nativo de Grupo/Comunidade recebido de ${pushName || remoteJid}! Aceitando...`);
       const gJid = await waSocket.groupAcceptInviteV4(msg.key, nativeInvite);
       const targetJid = gJid || nativeInvite.groupJid;
       if (targetJid) {
@@ -791,10 +888,10 @@ async function startWhatsApp() {
               if (ch.id.endsWith('@g.us')) groupSubjectCache.set(ch.id, chName);
               else contactNameCache.set(ch.id, chName);
             }
-            if (ch.archived || ch.archive || ch.id.endsWith('@g.us')) {
+            if (isKnownSupplierJid(ch.id) || joinedCommunitiesMap.has(ch.id)) {
               registerMonitoredArchivedChat(ch.id, {
                 name: chName || ch.id.split('@')[0],
-                type: ch.id.endsWith('@g.us') ? 'Grupo / Comunidade Arquivada' : 'Contato Arquivado no WhatsApp'
+                type: ch.id.endsWith('@g.us') ? 'Comunidade Oficial Fornecedor' : 'Fornecedor Arquivado'
               });
               archivedDetected++;
             }
@@ -802,10 +899,10 @@ async function startWhatsApp() {
         }
         if (archivedDetected > 0) {
           saveMonitoredArchived();
-          addLog(`📂 Sincronização de Arquivados: ${archivedDetected} contatos/grupos arquivados detectados!`);
+          addLog(`[SINCRONIA] Sincronização de Arquivados: ${archivedDetected} contatos/grupos arquivados detectados!`);
         }
         if (Array.isArray(messages) && messages.length > 0) {
-          addLog(`📥 Processando ${messages.length} mensagens do histórico sincronizado (tipo ${syncType ?? 'histórico'})...`);
+          addLog(`[MENSAGEM] Processando ${messages.length} mensagens do histórico sincronizado (tipo ${syncType ?? 'histórico'})...`);
           for (const m of messages) {
             if (m && m.key) {
               await inspectIncomingMessage(m);
@@ -821,7 +918,7 @@ async function startWhatsApp() {
       if (!Array.isArray(chats)) return;
       let added = 0;
       for (const ch of chats) {
-        if (ch && ch.id && (ch.archived || ch.archive)) {
+        if (ch && ch.id && (ch.archived || ch.archive) && (isKnownSupplierJid(ch.id) || joinedCommunitiesMap.has(ch.id))) {
           const chName = ch.name || ch.subject || contactNameCache.get(ch.id) || ch.id.split('@')[0];
           registerMonitoredArchivedChat(ch.id, {
             name: chName,
@@ -855,7 +952,7 @@ async function startWhatsApp() {
           });
           changed = true;
           if (isNew) {
-            addLog(`👁️ Contato/Chat arquivado adicionado ao monitoramento: ${chName} (${u.id})`);
+            addLog(`[MONITORANDO] Contato/Chat arquivado adicionado ao monitoramento: ${chName} (${u.id})`);
           }
           // Se tiver âncora real e ainda não pediu histórico, já solicita as últimas mensagens
           if (!historyRequestedJids.has(u.id) && realMessageAnchorsMap.has(u.id)) {
@@ -939,26 +1036,6 @@ async function startWhatsApp() {
         if (g.id) {
           groupMetaCache.set(g.id, g);
           if (g.subject) groupSubjectCache.set(g.id, g.subject);
-          const isComm = !!(g.isCommunity || g.isCommunityAnnounce || g.linkedParent);
-          addLog(`📥 Novo grupo/comunidade detectado: "${g.subject || g.id}". Arquivando e monitorando automaticamente...`);
-          await archiveChatJid(g.id, `["${g.subject || g.id}"]`, g.subject || 'Grupo', isComm ? 'Comunidade' : 'Grupo', true);
-          if (g.linkedParent) {
-            await archiveChatJid(g.linkedParent, `[Comunidade-Mãe]`, `${g.subject || 'Comunidade'} (Mãe)`, 'Comunidade-Mãe', true);
-          }
-          if (!joinedCommunitiesMap.has(g.id)) {
-            joinedCommunitiesMap.set(g.id, {
-              code: g.id,
-              link: isComm ? 'Adicionado à Comunidade' : 'Adicionado ao Grupo',
-              groupJid: g.id,
-              linkedParent: g.linkedParent || '',
-              groupName: g.subject || 'Grupo / Comunidade',
-              senderJid: g.owner || 'Automático',
-              senderName: isComm ? 'Comunidade' : 'Grupo',
-              status: 'ENTROU_E_ARQUIVOU',
-              joinedAt: new Date().toLocaleString('pt-BR')
-            });
-            saveJoinedCommunities();
-          }
         }
       }
     });
@@ -1024,14 +1101,14 @@ app.post('/api/send', async (req, res) => {
     if (sentMsg) {
       chatLastMsgMap.set(jid, sentMsg);
     }
-    addLog(`✅ Mensagem enviada para ${name || phone} (${jid})`);
+    addLog(`[OK] Mensagem enviada para ${name || phone} (${jid})`);
 
     await archiveChatJid(jid, `[Fornecedor arquivado e monitorado: ${name || phone}]`, name || phone, 'Fornecedor Arquivado', true);
     setTimeout(() => archiveChatJid(jid, '', name || phone, 'Fornecedor Arquivado', true), 2500);
 
     return res.json({ ok: true, jid });
   } catch (err) {
-    addLog(`❌ Erro ao enviar para ${name || phone}: ${err.message}`);
+    addLog(`[ERRO] Erro ao enviar para ${name || phone}: ${err.message}`);
     return res.status(500).json({ ok: false, error: err.message });
   }
 });
