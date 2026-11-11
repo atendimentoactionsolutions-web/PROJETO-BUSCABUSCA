@@ -106,13 +106,24 @@ def save_historico(hist):
         json.dump(hist, f, ensure_ascii=False, indent=2)
 
 
-def load_produtos():
+def get_today_str():
+    return time.strftime("%d/%m/%Y")
+
+
+def load_produtos(only_today=True):
     with products_lock:
         if os.path.exists(PRODUTOS_FILE):
             try:
                 with open(PRODUTOS_FILE, "r", encoding="utf-8") as f:
                     data = json.load(f)
                     if isinstance(data, list):
+                        if only_today:
+                            hoje = get_today_str()
+                            # Filtrar apenas produtos do dia corrente (a partir das 06:00)
+                            return [
+                                p for p in data
+                                if p.get("data") == hoje and str(p.get("hora", "00:00:00")) >= "06:00:00"
+                            ]
                         return data
             except Exception:
                 pass
@@ -162,7 +173,14 @@ def identify_supplier(participant_jid, remote_jid, push_name, group_name, msg_te
 def upsert_parsed_products(new_items):
     if not new_items:
         return 0
-    atuais = load_produtos()
+    # Carregar apenas os do dia para que ao virar o dia a lista zere automaticamente
+    hoje = get_today_str()
+    atuais_todos = load_produtos(only_today=False)
+    # Manter somente os produtos de hoje após 06:00
+    atuais = [
+        p for p in atuais_todos
+        if p.get("data") == hoje and str(p.get("hora", "00:00:00")) >= "06:00:00"
+    ]
     # Chave única por Data + Fornecedor + Modelo + Capacidade + Cor para atualizar preço e condição no mesmo dia
     index_map = {}
     for i, item in enumerate(atuais):
@@ -1714,9 +1732,19 @@ class PanelHandler(BaseHTTPRequestHandler):
             push_name = str(body.get("pushName", ""))
             group_name = str(body.get("groupName", ""))
             image_base64 = str(body.get("imageBase64", "")).strip()
+            msg_ts = body.get("timestamp")
+
+            # Validação estrita: somente processar mensagens recebidas no dia de hoje a partir das 06:00
+            if msg_ts and isinstance(msg_ts, (int, float)) and msg_ts > 0:
+                t_struct = time.localtime(msg_ts)
+                msg_date = time.strftime("%d/%m/%Y", t_struct)
+                msg_hour = time.strftime("%H:%M:%S", t_struct)
+                if msg_date != get_today_str() or msg_hour < "06:00:00":
+                    self._send_json({"ok": True, "parsedCount": 0, "ignoredOldDate": True})
+                    return
 
             sup_name, sup_phone = identify_supplier(participant_jid, remote_jid, push_name, group_name, text)
-            items = parse_supplier_message(text, sup_name, sup_phone, group_name or push_name, image_base64=image_base64)
+            items = parse_supplier_message(text, sup_name, sup_phone, group_name or push_name, image_base64=image_base64, msg_timestamp=msg_ts)
             if items:
                 try:
                     raw_log_path = os.path.join(BASE_DIR, "ultimas_listas_brutas.json")

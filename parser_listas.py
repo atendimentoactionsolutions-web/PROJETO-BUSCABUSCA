@@ -359,7 +359,7 @@ def looks_like_product_header(line):
     return False
 
 
-def parse_supplier_message(text, supplier_name, supplier_phone, group_name="", date_str=None, image_base64=None):
+def parse_supplier_message(text, supplier_name, supplier_phone, group_name="", date_str=None, image_base64=None, msg_timestamp=None):
     """
     Lê a mensagem completa (e analisa a foto via OCR se houver) para separar com precisão absoluta
     o que é Novo / Lacrado e o que é Seminovo, em todas as categorias.
@@ -372,9 +372,14 @@ def parse_supplier_message(text, supplier_name, supplier_phone, group_name="", d
     if not combined_raw or len(combined_raw.strip()) < 6:
         return []
 
-    if not date_str:
-        date_str = time.strftime("%d/%m/%Y")
-    time_str = time.strftime("%H:%M:%S")
+    if msg_timestamp and isinstance(msg_timestamp, (int, float)) and msg_timestamp > 0:
+        ts_struct = time.localtime(msg_timestamp)
+        date_str = time.strftime("%d/%m/%Y", ts_struct)
+        time_str = time.strftime("%H:%M:%S", ts_struct)
+    else:
+        if not date_str:
+            date_str = time.strftime("%d/%m/%Y")
+        time_str = time.strftime("%H:%M:%S")
 
     # Remover avisos de troca ("Aceitamos seu iPhone usado como parte do pagamento...")
     clean_full_text = strip_tradein_disclaimers(combined_raw)
