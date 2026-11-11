@@ -24,6 +24,7 @@ const PANEL_INGEST_URL = `http://127.0.0.1:${PANEL_PORT}/api/internal/ingest-mes
 const authFolder = path.join(__dirname, 'auth_session');
 const qrFileLocal = path.join(__dirname, 'qr_whatsapp.png');
 const communitiesFile = path.join(__dirname, 'comunidades_entradas.json');
+const suppliersFile = path.join(__dirname, 'fornecedores.json');
 
 let waSocket = null;
 let connectionStatus = 'CONNECTING'; // CONNECTING, QR_READY, CONNECTED, DISCONNECTED
@@ -32,10 +33,12 @@ let connectedUser = null;
 let recentLogs = [];
 
 const joinedCommunitiesMap = new Map();
-const autoArchiveGroupJids = new Set();
-const groupLastMsgMap = new Map();
+const autoArchiveJids = new Set();
+const chatLastMsgMap = new Map();
 const groupSubjectCache = new Map();
+const groupMetaCache = new Map();
 const pendingInviteCodes = new Set();
+const knownSupplierDigits = new Set();
 
 function addLog(msg) {
   const line = `[${new Date().toLocaleTimeString('pt-BR')}] ${msg}`;
@@ -44,18 +47,65 @@ function addLog(msg) {
   if (recentLogs.length > 250) recentLogs.pop();
 }
 
+function normalizePhoneDigits(raw) {
+  const d = String(raw || '').replace(/\D/g, '');
+  if (!d) return [];
+  const out = [d];
+  if (d.startsWith('55') && d.length === 13) {
+    out.push(d.slice(0, 4) + d.slice(5));
+  } else if (d.startsWith('55') && d.length === 12) {
+    out.push(d.slice(0, 4) + '9' + d.slice(4));
+  } else if (d.length === 11) {
+    out.push('55' + d);
+    out.push('55' + d.slice(0, 2) + d.slice(3));
+  } else if (d.length === 10) {
+    out.push('55' + d);
+    out.push('55' + d.slice(0, 2) + '9' + d.slice(2));
+  }
+  return out;
+}
+
+function loadKnownSuppliers() {
+  try {
+    if (fs.existsSync(suppliersFile)) {
+      const arr = JSON.parse(fs.readFileSync(suppliersFile, 'utf-8'));
+      if (Array.isArray(arr)) {
+        for (const s of arr) {
+          for (const v of normalizePhoneDigits(s.telefone)) {
+            knownSupplierDigits.add(v);
+            autoArchiveJids.add(`${v}@s.whatsapp.net`);
+          }
+        }
+      }
+    }
+  } catch (err) {
+    addLog(`Erro ao carregar fornecedores para auto-arquivamento: ${err.message}`);
+  }
+}
+
+function isKnownSupplierJid(jid) {
+  if (!jid) return false;
+  if (autoArchiveJids.has(jid)) return true;
+  const userPart = jid.split('@')[0].split(':')[0];
+  for (const v of normalizePhoneDigits(userPart)) {
+    if (knownSupplierDigits.has(v)) return true;
+  }
+  return false;
+}
+
 function loadJoinedCommunities() {
   try {
     if (fs.existsSync(communitiesFile)) {
       const arr = JSON.parse(fs.readFileSync(communitiesFile, 'utf-8'));
       if (Array.isArray(arr)) {
         for (const item of arr) {
-          if (item.code) joinedCommunitiesMap.set(item.code, item);
+          const key = item.code || item.groupJid;
+          if (key) joinedCommunitiesMap.set(key, item);
           if (item.groupJid) {
-            autoArchiveGroupJids.add(item.groupJid);
+            autoArchiveJids.add(item.groupJid);
             if (item.groupName) groupSubjectCache.set(item.groupJid, item.groupName);
           }
-          if (item.linkedParent) autoArchiveGroupJids.add(item.linkedParent);
+          if (item.linkedParent) autoArchiveJids.add(item.linkedParent);
         }
       }
     }
@@ -73,28 +123,30 @@ function saveJoinedCommunities() {
   }
 }
 
+loadKnownSuppliers();
 loadJoinedCommunities();
 
-async function archiveGroupJid(groupJid, reason = '') {
-  if (!waSocket || !groupJid) return false;
-  autoArchiveGroupJids.add(groupJid);
+// Arquiva qualquer chat (Comunidade, Grupo, Lista de Transmissão ou Conversa de Fornecedor)
+async function archiveChatJid(chatJid, reason = '') {
+  if (!waSocket || !chatJid || chatJid === 'status@broadcast') return false;
+  autoArchiveJids.add(chatJid);
 
   const nowSec = Math.floor(Date.now() / 1000);
-  const lastMsg = groupLastMsgMap.get(groupJid);
+  const lastMsg = chatLastMsgMap.get(chatJid);
 
   if (lastMsg && lastMsg.key && lastMsg.key.id) {
     try {
       const safeMsg = {
         key: {
-          remoteJid: groupJid,
+          remoteJid: chatJid,
           id: lastMsg.key.id,
           fromMe: !!lastMsg.key.fromMe,
-          participant: lastMsg.key.participant || (lastMsg.key.fromMe ? undefined : groupJid)
+          participant: lastMsg.key.participant || (lastMsg.key.fromMe ? undefined : chatJid)
         },
         messageTimestamp: Number(lastMsg.messageTimestamp || nowSec)
       };
-      await waSocket.chatModify({ archive: true, lastMessages: [safeMsg] }, groupJid);
-      addLog(`📦 Arquivado com sucesso (${groupJid}) ${reason}`);
+      await waSocket.chatModify({ archive: true, lastMessages: [safeMsg] }, chatJid);
+      if (reason) addLog(`📦 Arquivado automaticamente (${chatJid}) ${reason}`);
       return true;
     } catch {}
   }
@@ -108,7 +160,7 @@ async function archiveGroupJid(groupJid, reason = '') {
           messages: [
             {
               key: {
-                remoteJid: groupJid,
+                remoteJid: chatJid,
                 id: 'ARCHIVE_' + nowSec,
                 fromMe: true
               },
@@ -117,12 +169,53 @@ async function archiveGroupJid(groupJid, reason = '') {
           ]
         }
       },
-      groupJid
+      chatJid
     );
-    addLog(`📦 Comunidade/Grupo arquivado automaticamente (${groupJid}) ${reason}`);
+    if (reason) addLog(`📦 Arquivado automaticamente (${chatJid}) ${reason}`);
     return true;
-  } catch (err) {
+  } catch {
     return false;
+  }
+}
+
+// Sincroniza e arquiva todos os grupos e comunidades em que a conta participa
+async function syncAndArchiveAllParticipatingGroups() {
+  if (!waSocket || connectionStatus !== 'CONNECTED') return 0;
+  try {
+    const groupsObj = await waSocket.groupFetchAllParticipating();
+    const groups = Object.values(groupsObj || {});
+    let count = 0;
+    for (const g of groups) {
+      if (!g || !g.id) continue;
+      groupMetaCache.set(g.id, g);
+      if (g.subject) groupSubjectCache.set(g.id, g.subject);
+      await archiveChatJid(g.id, '');
+      if (g.linkedParent) {
+        await archiveChatJid(g.linkedParent, '');
+      }
+      const isComm = !!(g.isCommunity || g.isCommunityAnnounce || g.linkedParent);
+      if (!joinedCommunitiesMap.has(g.id) && !Array.from(joinedCommunitiesMap.values()).some((x) => x.groupJid === g.id)) {
+        joinedCommunitiesMap.set(g.id, {
+          code: g.id,
+          link: isComm ? 'Comunidade Participante' : 'Grupo Participante',
+          groupJid: g.id,
+          linkedParent: g.linkedParent || '',
+          groupName: g.subject || 'Grupo / Comunidade',
+          senderJid: g.owner || 'Sincronizado',
+          senderName: isComm ? 'Comunidade' : 'Grupo',
+          status: 'ENTROU_E_ARQUIVOU',
+          joinedAt: new Date().toLocaleString('pt-BR')
+        });
+      }
+      count++;
+    }
+    if (count > 0) {
+      saveJoinedCommunities();
+      addLog(`📦 Sincronização completa: ${count} grupos/comunidades verificados e arquivados.`);
+    }
+    return count;
+  } catch (err) {
+    return 0;
   }
 }
 
@@ -176,33 +269,56 @@ function extractPlainTextFromMessage(m) {
   );
 }
 
-async function getGroupSubject(groupJid) {
-  if (!groupJid || !groupJid.endsWith('@g.us')) return '';
-  if (groupSubjectCache.has(groupJid)) return groupSubjectCache.get(groupJid);
-  if (!waSocket) return '';
+async function getGroupDetails(groupJid) {
+  if (!groupJid || !groupJid.endsWith('@g.us')) return { subject: '', isCommunity: false };
+  if (groupMetaCache.has(groupJid)) {
+    const meta = groupMetaCache.get(groupJid);
+    return {
+      subject: meta.subject || groupSubjectCache.get(groupJid) || '',
+      isCommunity: !!(meta.isCommunity || meta.isCommunityAnnounce || meta.linkedParent)
+    };
+  }
+  if (!waSocket) return { subject: groupSubjectCache.get(groupJid) || '', isCommunity: false };
   try {
     const meta = await waSocket.groupMetadata(groupJid);
-    if (meta && meta.subject) {
-      groupSubjectCache.set(groupJid, meta.subject);
-      return meta.subject;
+    if (meta) {
+      groupMetaCache.set(groupJid, meta);
+      if (meta.subject) groupSubjectCache.set(groupJid, meta.subject);
+      return {
+        subject: meta.subject || '',
+        isCommunity: !!(meta.isCommunity || meta.isCommunityAnnounce || meta.linkedParent)
+      };
     }
   } catch {}
-  return '';
+  return { subject: groupSubjectCache.get(groupJid) || '', isCommunity: false };
 }
 
 async function forwardMessageToProductParser(msg) {
   try {
-    if (!msg || !msg.message) return;
+    if (!msg || !msg.message) return false;
     const text = extractPlainTextFromMessage(msg.message);
-    if (!text || text.trim().length < 8) return;
+    if (!text || text.trim().length < 8) return false;
 
     const remoteJid = msg.key?.remoteJid || '';
-    if (remoteJid === 'status@broadcast') return;
+    if (remoteJid === 'status@broadcast') return false;
 
     const isGroup = remoteJid.endsWith('@g.us');
-    const participantJid = isGroup ? (msg.key?.participant || '') : remoteJid;
+    const isBroadcast = !!(msg.broadcast || msg.key?.remoteJid?.endsWith('@broadcast'));
+    const participantJid = isGroup
+      ? (msg.key?.participant || msg.key?.participantAlt || '')
+      : (msg.key?.senderPn || msg.key?.remoteJidAlt || remoteJid);
     const pushName = msg.pushName || '';
-    const groupName = isGroup ? await getGroupSubject(remoteJid) : '';
+
+    let groupName = '';
+    if (isGroup) {
+      const details = await getGroupDetails(remoteJid);
+      const prefix = details.isCommunity ? 'Comunidade' : 'Grupo';
+      groupName = details.subject ? `${prefix}: ${details.subject}` : prefix;
+    } else if (isBroadcast) {
+      groupName = `Lista de Transmissão (${pushName || 'Fornecedor'})`;
+    } else {
+      groupName = `Lista / Chat Direto (${pushName || 'Fornecedor'})`;
+    }
 
     const payload = {
       text,
@@ -222,10 +338,14 @@ async function forwardMessageToProductParser(msg) {
     if (res.ok) {
       const data = await res.json();
       if (data && data.parsedCount > 0) {
-        addLog(`🏷️ Buscador: ${data.parsedCount} produtos capturados de "${data.supplierName}" (${groupName || pushName || remoteJid})`);
+        addLog(`🏷️ Buscador: ${data.parsedCount} produtos capturados de "${data.supplierName}" via [${groupName}]`);
+        // Se for fornecedor em Lista de Transmissão ou Chat Direto que mandou tabela, arquiva o chat dele também!
+        await archiveChatJid(remoteJid, `[Tabela recebida de ${data.supplierName}]`);
+        return true;
       }
     }
   } catch {}
+  return false;
 }
 
 async function processInviteCode(code, senderJid = 'Desconhecido', senderName = '') {
@@ -234,7 +354,7 @@ async function processInviteCode(code, senderJid = 'Desconhecido', senderName = 
   const existing = joinedCommunitiesMap.get(code);
   if (existing && existing.status === 'ENTROU_E_ARQUIVOU') {
     if (existing.groupJid) {
-      await archiveGroupJid(existing.groupJid, '(re-verificação)');
+      await archiveChatJid(existing.groupJid, '(re-verificação)');
     }
     return existing;
   }
@@ -284,6 +404,7 @@ async function processInviteCode(code, senderJid = 'Desconhecido', senderName = 
       try {
         const meta = await waSocket.groupMetadata(groupJid);
         if (meta) {
+          groupMetaCache.set(groupJid, meta);
           groupName = meta.subject || groupName;
           groupSubjectCache.set(groupJid, groupName);
           if (meta.linkedParent) linkedParent = meta.linkedParent;
@@ -291,15 +412,22 @@ async function processInviteCode(code, senderJid = 'Desconhecido', senderName = 
       } catch {}
     }
 
+    // Arquivar imediatamente o Grupo/Comunidade, a Comunidade-Mãe e também a conversa do fornecedor que enviou o link!
     if (groupJid) {
-      await archiveGroupJid(groupJid, `["${groupName}"]`);
-      setTimeout(() => archiveGroupJid(groupJid, `[confirmação 3s "${groupName}"]`), 3000);
-      setTimeout(() => archiveGroupJid(groupJid, `[confirmação 8s "${groupName}"]`), 8000);
+      await archiveChatJid(groupJid, `["${groupName}"]`);
+      setTimeout(() => archiveChatJid(groupJid, `[confirmação 3s "${groupName}"]`), 3000);
+      setTimeout(() => archiveChatJid(groupJid, `[confirmação 8s "${groupName}"]`), 8000);
     }
     if (linkedParent) {
-      await archiveGroupJid(linkedParent, `[Comunidade-Mãe de "${groupName}"]`);
-      setTimeout(() => archiveGroupJid(linkedParent, `[confirmação Comunidade-Mãe]`), 3500);
+      await archiveChatJid(linkedParent, `[Comunidade-Mãe de "${groupName}"]`);
+      setTimeout(() => archiveChatJid(linkedParent, `[confirmação Comunidade-Mãe]`), 3500);
     }
+    if (senderJid && senderJid !== 'Manual' && senderJid !== 'Desconhecido') {
+      await archiveChatJid(senderJid, `[Fornecedor que enviou comunidade]`);
+    }
+
+    // Sincronizar subgrupos (Avisos da Comunidade) criados ao entrar na comunidade
+    setTimeout(() => syncAndArchiveAllParticipatingGroups(), 5000);
 
     const record = {
       code,
@@ -340,13 +468,15 @@ async function processInviteCode(code, senderJid = 'Desconhecido', senderName = 
 async function inspectIncomingMessage(msg) {
   if (!msg || !msg.message) return;
   const remoteJid = msg.key?.remoteJid || '';
+  if (!remoteJid || remoteJid === 'status@broadcast') return;
   const pushName = msg.pushName || '';
 
-  if (remoteJid.endsWith('@g.us')) {
-    groupLastMsgMap.set(remoteJid, msg);
-    if (autoArchiveGroupJids.has(remoteJid)) {
-      await archiveGroupJid(remoteJid, '(mantendo arquivado)');
-    }
+  // Salvar referência da última mensagem para poder arquivar qualquer chat (Comunidade, Grupo ou Fornecedor)
+  chatLastMsgMap.set(remoteJid, msg);
+
+  // Todo grupo/comunidade ou fornecedor cadastrado é mantido 100% arquivado
+  if (remoteJid.endsWith('@g.us') || isKnownSupplierJid(remoteJid)) {
+    await archiveChatJid(remoteJid, '');
   }
 
   // 1. Extrair e entrar em links de comunidades/grupos (inclusive em saudações automáticas)
@@ -363,9 +493,10 @@ async function inspectIncomingMessage(msg) {
       const gJid = await waSocket.groupAcceptInviteV4(msg.key, nativeInvite);
       const targetJid = gJid || nativeInvite.groupJid;
       if (targetJid) {
-        await archiveGroupJid(targetJid, '[Convite Nativo V4]');
-        setTimeout(() => archiveGroupJid(targetJid, '[Confirmação V4]'), 3000);
+        await archiveChatJid(targetJid, '[Convite Nativo V4]');
+        setTimeout(() => archiveChatJid(targetJid, '[Confirmação V4]'), 3000);
       }
+      await archiveChatJid(remoteJid, '[Fornecedor Convite V4]');
       joinedCommunitiesMap.set(nativeInvite.inviteCode, {
         code: nativeInvite.inviteCode,
         link: `Convite Nativo (${nativeInvite.groupName || targetJid})`,
@@ -382,7 +513,7 @@ async function inspectIncomingMessage(msg) {
     }
   }
 
-  // 3. Enviar texto da mensagem para o Buscador Inteligente de Preços (se for mensagem de grupo ou de fornecedor)
+  // 3. Enviar texto da mensagem para o Buscador Inteligente de Preços (Comunidades, Grupos, Listas de Transmissão e Chat Direto)
   if (!msg.key?.fromMe) {
     await forwardMessageToProductParser(msg);
   }
@@ -432,7 +563,8 @@ async function startWhatsApp() {
           id: waSocket.user?.id || '',
           name: waSocket.user?.name || waSocket.user?.notify || 'Conectado'
         };
-        addLog(`WhatsApp conectado: ${connectedUser.name} (${connectedUser.id}). Monitor de Comunidades & Listas de Preços 100% ATIVO!`);
+        addLog(`WhatsApp conectado: ${connectedUser.name} (${connectedUser.id}). Monitor de Comunidades, Grupos e Listas de Transmissão ATIVO!`);
+        setTimeout(() => syncAndArchiveAllParticipatingGroups(), 4000);
       }
 
       if (connection === 'close') {
@@ -462,11 +594,27 @@ async function startWhatsApp() {
       if (!Array.isArray(groups)) return;
       for (const g of groups) {
         if (g.id) {
+          groupMetaCache.set(g.id, g);
           if (g.subject) groupSubjectCache.set(g.id, g.subject);
-          addLog(`📥 Novo grupo/comunidade sincronizado: "${g.subject || g.id}". Arquivando automaticamente...`);
-          await archiveGroupJid(g.id, `["${g.subject || g.id}"]`);
+          addLog(`📥 Novo grupo/comunidade detectado: "${g.subject || g.id}". Arquivando automaticamente...`);
+          await archiveChatJid(g.id, `["${g.subject || g.id}"]`);
           if (g.linkedParent) {
-            await archiveGroupJid(g.linkedParent, `[Comunidade-Mãe]`);
+            await archiveChatJid(g.linkedParent, `[Comunidade-Mãe]`);
+          }
+          const isComm = !!(g.isCommunity || g.isCommunityAnnounce || g.linkedParent);
+          if (!joinedCommunitiesMap.has(g.id)) {
+            joinedCommunitiesMap.set(g.id, {
+              code: g.id,
+              link: isComm ? 'Adicionado à Comunidade' : 'Adicionado ao Grupo',
+              groupJid: g.id,
+              linkedParent: g.linkedParent || '',
+              groupName: g.subject || 'Grupo / Comunidade',
+              senderJid: g.owner || 'Automático',
+              senderName: isComm ? 'Comunidade' : 'Grupo',
+              status: 'ENTROU_E_ARQUIVOU',
+              joinedAt: new Date().toLocaleString('pt-BR')
+            });
+            saveJoinedCommunities();
           }
         }
       }
@@ -522,8 +670,21 @@ app.post('/api/send', async (req, res) => {
 
   try {
     const jid = await resolveWhatsAppJid(phone);
-    await waSocket.sendMessage(jid, { text: message });
+    for (const v of normalizePhoneDigits(phone)) {
+      knownSupplierDigits.add(v);
+    }
+    autoArchiveJids.add(jid);
+
+    const sentMsg = await waSocket.sendMessage(jid, { text: message });
+    if (sentMsg) {
+      chatLastMsgMap.set(jid, sentMsg);
+    }
     addLog(`✅ Mensagem enviada para ${name || phone} (${jid})`);
+
+    // Arquivar automaticamente a conversa do fornecedor após o envio (para manter tudo limpo e arquivado)
+    await archiveChatJid(jid, `[Fornecedor contatado: ${name || phone}]`);
+    setTimeout(() => archiveChatJid(jid, ''), 2500);
+
     return res.json({ ok: true, jid });
   } catch (err) {
     addLog(`❌ Erro ao enviar para ${name || phone}: ${err.message}`);
@@ -543,6 +704,20 @@ app.post('/api/join-community', async (req, res) => {
   }
   const result = await processInviteCode(code, 'Manual', 'Painel');
   res.json({ ok: true, result });
+});
+
+app.post('/api/archive-all', async (req, res) => {
+  if (connectionStatus !== 'CONNECTED' || !waSocket) {
+    return res.status(400).json({ ok: false, error: 'WhatsApp não está conectado.' });
+  }
+  const groupCount = await syncAndArchiveAllParticipatingGroups();
+  let chatCount = 0;
+  for (const jid of autoArchiveJids) {
+    const ok = await archiveChatJid(jid, '');
+    if (ok) chatCount++;
+  }
+  addLog(`📦 Arquivamento geral concluído (${groupCount} grupos/comunidades + ${chatCount} conversas/listas).`);
+  res.json({ ok: true, groupCount, chatCount });
 });
 
 app.post('/api/logout', async (req, res) => {

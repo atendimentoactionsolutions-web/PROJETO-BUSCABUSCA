@@ -1230,12 +1230,16 @@ ADMIN_HTML = """<!DOCTYPE html>
     <!-- Card 4: Comunidades Entradas e Arquivadas Automaticamente -->
     <div class="card">
       <h2>
-        <span>📦 Comunidades e Grupos Entrados + Arquivados Automaticamente</span>
-        <div style="display:flex;gap:8px;">
-          <input type="text" id="manualInviteLink" placeholder="Colar link chat.whatsapp.com/... para entrar e arquivar" style="width:340px;font-size:12px;" />
+        <span>📦 Comunidades, Grupos & Listas de Transmissão (100% Auto-Arquivados)</span>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <input type="text" id="manualInviteLink" placeholder="Colar link chat.whatsapp.com/... para entrar e arquivar" style="width:300px;font-size:12px;" />
           <button class="btn-ghost" onclick="joinManualCommunity()" style="padding:6px 12px;font-size:12px;">Entrar e Arquivar Agora</button>
+          <button class="btn-blue" onclick="archiveAllNow()" style="padding:6px 12px;font-size:12px;">📦 Arquivar Tudo (Comunidades, Grupos e Listas)</button>
         </div>
       </h2>
+      <p style="margin:0 0 10px 0;font-size:12px;color:#34d399;">
+        ✅ <strong>Monitoramento Triplo Ativo:</strong> 1) Fornecedores com <strong>Comunidade</strong> (entra pelo link e arquiva comunidade + avisos), 2) Fornecedores com <strong>Grupo</strong> (entra/sincroniza e arquiva), 3) Fornecedores com <strong>Lista de Transmissão ou Sem Lista (Chat Direto)</strong> (arquiva a conversa e lê a tabela enviada no privado).
+      </p>
       <div class="table-wrap" style="max-height:220px;">
         <table>
           <thead>
@@ -1553,6 +1557,17 @@ ADMIN_HTML = """<!DOCTYPE html>
       await loadState();
     }
 
+    async function archiveAllNow() {
+      const res = await fetch('/api/archive-all', { method: 'POST' });
+      const data = await res.json();
+      if (data.ok) {
+        alert('📦 Arquivamento completo! ' + (data.groupCount || 0) + ' grupos/comunidades e ' + (data.chatCount || 0) + ' conversas/listas arquivadas.');
+      } else {
+        alert('Aviso: ' + (data.error || 'Conecte o WhatsApp primeiro.'));
+      }
+      await loadState();
+    }
+
     setInterval(loadState, 2000);
     loadState();
   </script>
@@ -1792,6 +1807,15 @@ class PanelHandler(BaseHTTPRequestHandler):
             link_or_code = str(body.get("linkOrCode", "")).strip()
             try:
                 resp = bridge_post("/api/join-community", {"linkOrCode": link_or_code})
+                self._send_json(resp)
+            except Exception as e:
+                self._send_json({"ok": False, "error": str(e)})
+            return
+
+        if parsed.path == "/api/archive-all":
+            try:
+                resp = bridge_post("/api/archive-all", {})
+                add_panel_log(f"📦 Arquivamento geral executado: {resp.get('groupCount', 0)} grupos/comunidades e {resp.get('chatCount', 0)} conversas.")
                 self._send_json(resp)
             except Exception as e:
                 self._send_json({"ok": False, "error": str(e)})
