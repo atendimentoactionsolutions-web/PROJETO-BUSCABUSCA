@@ -4,3 +4,9 @@ __pycache__/
 *.pyc
 *.log
 qr_whatsapp.png
+produtos_dia.json
+anomalias_detectadas.json
+arquivados_monitorados.json
+comunidades_entradas.json
+ultimas_listas_brutas.json
+package-lock.json
