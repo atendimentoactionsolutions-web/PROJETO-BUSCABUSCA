@@ -3,16 +3,42 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import QRCode from 'qrcode';
-import makeWASocketDefault, {
-  makeWASocket as makeWASocketNamed,
-  useMultiFileAuthState,
-  DisconnectReason,
-  fetchLatestBaileysVersion
-} from '@whiskeysockets/baileys';
 
-const makeWASocket = makeWASocketNamed || makeWASocketDefault;
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+// Patch Baileys chat-utils.js before importing Baileys so chats.update always emits archiveMessageRange & markReadMessageRange without buffering drops
+try {
+  const chatUtilsPath = path.join(__dirname, 'node_modules', '@whiskeysockets', 'baileys', 'lib', 'Utils', 'chat-utils.js');
+  if (fs.existsSync(chatUtilsPath)) {
+    let cu = fs.readFileSync(chatUtilsPath, 'utf-8');
+    let modified = false;
+    if (!cu.includes('archiveMessageRange:')) {
+      cu = cu.replace(
+        /archived:\s*isArchived,\s*conditional:\s*getChatUpdateConditional\(id,\s*msgRange\)/,
+        'archived: isArchived, archiveMessageRange: archiveAction?.messageRange, conditional: undefined'
+      );
+      modified = true;
+    }
+    if (!cu.includes('markReadMessageRange:')) {
+      cu = cu.replace(
+        /unreadCount:\s*isNullUpdate\s*\?\s*null\s*:\s*!!markReadAction\?\.read\s*\?\s*0\s*:\s*-1,\s*conditional:\s*getChatUpdateConditional\(id,\s*markReadAction\?\.messageRange\)/,
+        'unreadCount: isNullUpdate ? null : !!markReadAction?.read ? 0 : -1, markReadMessageRange: markReadAction?.messageRange, conditional: undefined'
+      );
+      modified = true;
+    }
+    if (modified) {
+      fs.writeFileSync(chatUtilsPath, cu, 'utf-8');
+      console.log('[Patch] Baileys chat-utils.js atualizado para expor archiveMessageRange e markReadMessageRange.');
+    }
+  }
+} catch (e) {
+  console.error('Aviso ao aplicar patch em chat-utils.js:', e.message);
+}
+
+const baileysModule = await import('@whiskeysockets/baileys');
+const makeWASocket = baileysModule.makeWASocket || baileysModule.default;
+const { useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion } = baileysModule;
 
 const app = express();
 app.use(express.json({ limit: '10mb' }));
@@ -37,17 +63,24 @@ const joinedCommunitiesMap = new Map();
 const monitoredArchivedMap = new Map(); // Todos os contatos, grupos e comunidades arquivados monitorados
 const autoArchiveJids = new Set();
 const chatLastMsgMap = new Map();
+const realMessageAnchorsMap = new Map(); // jid -> { key, messageTimestamp } real para fetchMessageHistory
 const groupSubjectCache = new Map();
 const groupMetaCache = new Map();
 const contactNameCache = new Map();
 const pendingInviteCodes = new Set();
 const knownSupplierDigits = new Set();
+const historyRequestedJids = new Set();
 
 function addLog(msg) {
   const line = `[${new Date().toLocaleTimeString('pt-BR')}] ${msg}`;
   console.log(line);
   recentLogs.unshift(line);
   if (recentLogs.length > 250) recentLogs.pop();
+}
+
+function readJsonSafe(filePath) {
+  const raw = fs.readFileSync(filePath, 'utf-8').replace(/^\uFEFF/, '');
+  return JSON.parse(raw);
 }
 
 function normalizePhoneDigits(raw) {
@@ -68,6 +101,27 @@ function normalizePhoneDigits(raw) {
   return out;
 }
 
+function saveRealAnchorFromRange(jid, rangeObj) {
+  if (!jid || !rangeObj) return;
+  const msgs = rangeObj.messages || [];
+  for (const item of msgs) {
+    const k = item?.key || item?.message?.key;
+    const ts = Number(item?.messageTimestamp || item?.message?.messageTimestamp || rangeObj.lastMessageTimestamp || 0);
+    if (k && k.id && !String(k.id).startsWith('ARCHIVE_')) {
+      realMessageAnchorsMap.set(jid, {
+        key: {
+          remoteJid: jid,
+          id: k.id,
+          fromMe: !!k.fromMe,
+          participant: k.participant || undefined
+        },
+        messageTimestamp: ts || Math.floor(Date.now() / 1000)
+      });
+      return;
+    }
+  }
+}
+
 function registerMonitoredArchivedChat(jid, info = {}) {
   if (!jid || jid === 'status@broadcast') return;
   autoArchiveJids.add(jid);
@@ -83,7 +137,7 @@ function registerMonitoredArchivedChat(jid, info = {}) {
   const record = {
     jid,
     name,
-    type: info.type || existing.type || (isGroup ? 'Grupo / Comunidade' : 'Contato Arquivado'),
+    type: info.type || existing.type || (isGroup ? 'Grupo / Comunidade Arquivada' : 'Contato Arquivado no WhatsApp'),
     lastActivity: info.lastActivity || existing.lastActivity || new Date().toLocaleString('pt-BR'),
     productsCaptured: (existing.productsCaptured || 0) + (info.addProducts || 0),
     status: 'MONITORANDO ARQUIVADO'
@@ -101,7 +155,7 @@ function saveMonitoredArchived() {
 function loadMonitoredArchived() {
   try {
     if (fs.existsSync(archivedMonitoredFile)) {
-      const arr = JSON.parse(fs.readFileSync(archivedMonitoredFile, 'utf-8'));
+      const arr = readJsonSafe(archivedMonitoredFile);
       if (Array.isArray(arr)) {
         for (const item of arr) {
           if (item && item.jid) {
@@ -121,7 +175,7 @@ function loadMonitoredArchived() {
 function loadKnownSuppliers() {
   try {
     if (fs.existsSync(suppliersFile)) {
-      const arr = JSON.parse(fs.readFileSync(suppliersFile, 'utf-8'));
+      const arr = readJsonSafe(suppliersFile);
       if (Array.isArray(arr)) {
         for (const s of arr) {
           const sName = String(s.nome || '').trim();
@@ -132,10 +186,11 @@ function loadKnownSuppliers() {
             if (sName) contactNameCache.set(sJid, sName);
           }
         }
+        addLog(`📋 ${arr.length} fornecedores carregados na memória para identificação e auto-arquivamento.`);
       }
     }
   } catch (err) {
-    addLog(`Erro ao carregar fornecedores para auto-arquivamento: ${err.message}`);
+    addLog(`Erro ao carregar fornecedores: ${err.message}`);
   }
 }
 
@@ -152,7 +207,7 @@ function isKnownOrArchivedJid(jid) {
 function loadJoinedCommunities() {
   try {
     if (fs.existsSync(communitiesFile)) {
-      const arr = JSON.parse(fs.readFileSync(communitiesFile, 'utf-8'));
+      const arr = readJsonSafe(communitiesFile);
       if (Array.isArray(arr)) {
         for (const item of arr) {
           const key = item.code || item.groupJid;
@@ -188,7 +243,7 @@ loadMonitoredArchived();
 loadJoinedCommunities();
 
 // Arquiva qualquer chat (Comunidade, Grupo, Lista de Transmissão ou Contato Arquivado) e o registra no Monitor
-async function archiveChatJid(chatJid, reason = '', customName = '', customType = '') {
+async function archiveChatJid(chatJid, reason = '', customName = '', customType = '', forceFakeIfNoMsg = false) {
   if (!waSocket || !chatJid || chatJid === 'status@broadcast') return false;
   registerMonitoredArchivedChat(chatJid, {
     name: customName,
@@ -197,7 +252,7 @@ async function archiveChatJid(chatJid, reason = '', customName = '', customType 
   saveMonitoredArchived();
 
   const nowSec = Math.floor(Date.now() / 1000);
-  const lastMsg = chatLastMsgMap.get(chatJid);
+  const lastMsg = chatLastMsgMap.get(chatJid) || realMessageAnchorsMap.get(chatJid);
 
   if (lastMsg && lastMsg.key && lastMsg.key.id) {
     try {
@@ -214,6 +269,10 @@ async function archiveChatJid(chatJid, reason = '', customName = '', customType 
       if (reason) addLog(`📦 Arquivado e monitorado (${chatJid}) ${reason}`);
       return true;
     } catch {}
+  }
+
+  if (!forceFakeIfNoMsg) {
+    return true;
   }
 
   try {
@@ -243,6 +302,72 @@ async function archiveChatJid(chatJid, reason = '', customName = '', customType 
   }
 }
 
+// Solicita ao WhatsApp do celular o histórico de mensagens de um contato ou comunidade arquivada
+async function requestOnDemandHistoryForChat(jid, count = 45) {
+  if (!waSocket || connectionStatus !== 'CONNECTED' || !jid) return false;
+  const anchor = realMessageAnchorsMap.get(jid) || chatLastMsgMap.get(jid);
+  if (!anchor || !anchor.key || !anchor.key.id || String(anchor.key.id).startsWith('ARCHIVE_')) {
+    return false;
+  }
+  try {
+    const tsSec = Number(anchor.messageTimestamp || Math.floor(Date.now() / 1000));
+    const tsMs = tsSec < 20000000000 ? tsSec * 1000 : tsSec;
+    await waSocket.fetchMessageHistory(count, anchor.key, tsMs);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// Vistoria completa: sincroniza todos os contatos/grupos arquivados no aparelho e puxa o histórico de mensagens deles
+async function deepScanAllArchivedAndCommunities() {
+  if (!waSocket || connectionStatus !== 'CONNECTED') return { ok: false, error: 'WhatsApp não conectado' };
+  addLog('🔎 Iniciando VISTORIA COMPLETA nos Contatos Arquivados, Comunidades e Grupos...');
+
+  // 1. Sincronizar metadados de todos os grupos/comunidades participantes
+  await syncAndArchiveAllParticipatingGroups();
+
+  // 2. Forçar re-leitura dos snapshots de App State (regular_low = arquivados + messageRange, regular_high = lidos + messageRange, critical_unblock_low = contatos)
+  try {
+    for (const col of ['regular_low', 'regular_high', 'critical_unblock_low']) {
+      const f = path.join(authFolder, `app-state-sync-version-${col}.json`);
+      if (fs.existsSync(f)) fs.unlinkSync(f);
+    }
+    await waSocket.resyncAppState(['regular_low', 'regular_high', 'critical_unblock_low'], false);
+  } catch (err) {
+    addLog(`ℹ️ AppState sync aviso: ${err.message}`);
+  }
+
+  // 3. Solicitar histórico sob demanda (fetchMessageHistory) de todos os arquivados e comunidades com âncora de mensagem
+  let requestedCount = 0;
+  for (const [jid] of monitoredArchivedMap.entries()) {
+    if (realMessageAnchorsMap.has(jid)) {
+      const ok = await requestOnDemandHistoryForChat(jid, 50);
+      if (ok) {
+        requestedCount++;
+        await new Promise((r) => setTimeout(r, 250));
+      }
+    }
+  }
+  for (const [jid] of realMessageAnchorsMap.entries()) {
+    if (!monitoredArchivedMap.has(jid) && (jid.endsWith('@g.us') || isKnownOrArchivedJid(jid))) {
+      const ok = await requestOnDemandHistoryForChat(jid, 50);
+      if (ok) {
+        requestedCount++;
+        await new Promise((r) => setTimeout(r, 250));
+      }
+    }
+  }
+
+  addLog(`📡 Vistoria: ${monitoredArchivedMap.size} arquivados/comunidades mapeados e ${requestedCount} pedidos de histórico enviados ao aparelho.`);
+  return {
+    ok: true,
+    monitoredCount: monitoredArchivedMap.size,
+    anchorsCount: realMessageAnchorsMap.size,
+    historyRequestsSent: requestedCount
+  };
+}
+
 // Sincroniza e arquiva todos os grupos e comunidades em que a conta participa
 async function syncAndArchiveAllParticipatingGroups() {
   if (!waSocket || connectionStatus !== 'CONNECTED') return 0;
@@ -255,9 +380,9 @@ async function syncAndArchiveAllParticipatingGroups() {
       groupMetaCache.set(g.id, g);
       if (g.subject) groupSubjectCache.set(g.id, g.subject);
       const isComm = !!(g.isCommunity || g.isCommunityAnnounce || g.linkedParent);
-      await archiveChatJid(g.id, '', g.subject || 'Grupo / Comunidade', isComm ? 'Comunidade' : 'Grupo');
+      await archiveChatJid(g.id, '', g.subject || 'Grupo / Comunidade', isComm ? 'Comunidade' : 'Grupo', false);
       if (g.linkedParent) {
-        await archiveChatJid(g.linkedParent, '', `${g.subject || 'Comunidade'} (Mãe)`, 'Comunidade-Mãe');
+        await archiveChatJid(g.linkedParent, '', `${g.subject || 'Comunidade'} (Mãe)`, 'Comunidade-Mãe', false);
       }
       if (!joinedCommunitiesMap.has(g.id) && !Array.from(joinedCommunitiesMap.values()).some((x) => x.groupJid === g.id)) {
         joinedCommunitiesMap.set(g.id, {
@@ -420,7 +545,7 @@ async function forwardMessageToProductParser(msg) {
           lastActivity: new Date().toLocaleString('pt-BR'),
           addProducts: data.parsedCount
         });
-        await archiveChatJid(remoteJid, `[Lista recebida de ${data.supplierName}]`, data.supplierName, channelType);
+        await archiveChatJid(remoteJid, `[Lista recebida de ${data.supplierName}]`, data.supplierName, channelType, false);
         return true;
       }
     }
@@ -434,7 +559,7 @@ async function processInviteCode(code, senderJid = 'Desconhecido', senderName = 
   const existing = joinedCommunitiesMap.get(code);
   if (existing && existing.status === 'ENTROU_E_ARQUIVOU') {
     if (existing.groupJid) {
-      await archiveChatJid(existing.groupJid, '(re-verificação)', existing.groupName, 'Comunidade / Grupo');
+      await archiveChatJid(existing.groupJid, '(re-verificação)', existing.groupName, 'Comunidade / Grupo', true);
     }
     return existing;
   }
@@ -493,16 +618,16 @@ async function processInviteCode(code, senderJid = 'Desconhecido', senderName = 
     }
 
     if (groupJid) {
-      await archiveChatJid(groupJid, `["${groupName}"]`, groupName, 'Comunidade / Grupo');
-      setTimeout(() => archiveChatJid(groupJid, `[confirmação 3s "${groupName}"]`, groupName, 'Comunidade / Grupo'), 3000);
-      setTimeout(() => archiveChatJid(groupJid, `[confirmação 8s "${groupName}"]`, groupName, 'Comunidade / Grupo'), 8000);
+      await archiveChatJid(groupJid, `["${groupName}"]`, groupName, 'Comunidade / Grupo', true);
+      setTimeout(() => archiveChatJid(groupJid, `[confirmação 3s "${groupName}"]`, groupName, 'Comunidade / Grupo', true), 3000);
+      setTimeout(() => archiveChatJid(groupJid, `[confirmação 8s "${groupName}"]`, groupName, 'Comunidade / Grupo', true), 8000);
     }
     if (linkedParent) {
-      await archiveChatJid(linkedParent, `[Comunidade-Mãe de "${groupName}"]`, `${groupName} (Comunidade)`, 'Comunidade-Mãe');
-      setTimeout(() => archiveChatJid(linkedParent, `[confirmação Comunidade-Mãe]`, `${groupName} (Comunidade)`, 'Comunidade-Mãe'), 3500);
+      await archiveChatJid(linkedParent, `[Comunidade-Mãe de "${groupName}"]`, `${groupName} (Comunidade)`, 'Comunidade-Mãe', true);
+      setTimeout(() => archiveChatJid(linkedParent, `[confirmação Comunidade-Mãe]`, `${groupName} (Comunidade)`, 'Comunidade-Mãe', true), 3500);
     }
     if (senderJid && senderJid !== 'Manual' && senderJid !== 'Desconhecido') {
-      await archiveChatJid(senderJid, `[Fornecedor que enviou comunidade]`, senderName, 'Contato Arquivado');
+      await archiveChatJid(senderJid, `[Fornecedor que enviou comunidade]`, senderName, 'Contato Arquivado', false);
     }
 
     setTimeout(() => syncAndArchiveAllParticipatingGroups(), 5000);
@@ -553,6 +678,12 @@ async function inspectIncomingMessage(msg) {
   }
 
   chatLastMsgMap.set(remoteJid, msg);
+  if (msg.key?.id && !String(msg.key.id).startsWith('ARCHIVE_')) {
+    realMessageAnchorsMap.set(remoteJid, {
+      key: msg.key,
+      messageTimestamp: Number(msg.messageTimestamp || Math.floor(Date.now() / 1000))
+    });
+  }
 
   // Se o contato/grupo está arquivado ou é fornecedor monitorado, mantém arquivado e atualiza atividade
   if (remoteJid.endsWith('@g.us') || isKnownOrArchivedJid(remoteJid)) {
@@ -560,7 +691,7 @@ async function inspectIncomingMessage(msg) {
       name: remoteJid.endsWith('@g.us') ? groupSubjectCache.get(remoteJid) : pushName,
       lastActivity: new Date().toLocaleString('pt-BR')
     });
-    await archiveChatJid(remoteJid, '');
+    await archiveChatJid(remoteJid, '', '', '', false);
   }
 
   // 1. Extrair e entrar em links de comunidades/grupos (inclusive em saudações automáticas)
@@ -577,10 +708,10 @@ async function inspectIncomingMessage(msg) {
       const gJid = await waSocket.groupAcceptInviteV4(msg.key, nativeInvite);
       const targetJid = gJid || nativeInvite.groupJid;
       if (targetJid) {
-        await archiveChatJid(targetJid, '[Convite Nativo V4]', nativeInvite.groupName || 'Grupo Convidado', 'Comunidade / Grupo');
-        setTimeout(() => archiveChatJid(targetJid, '[Confirmação V4]'), 3000);
+        await archiveChatJid(targetJid, '[Convite Nativo V4]', nativeInvite.groupName || 'Grupo Convidado', 'Comunidade / Grupo', true);
+        setTimeout(() => archiveChatJid(targetJid, '[Confirmação V4]', '', '', true), 3000);
       }
-      await archiveChatJid(remoteJid, '[Fornecedor Convite V4]', pushName, 'Contato Arquivado');
+      await archiveChatJid(remoteJid, '[Fornecedor Convite V4]', pushName, 'Contato Arquivado', false);
       joinedCommunitiesMap.set(nativeInvite.inviteCode, {
         code: nativeInvite.inviteCode,
         link: `Convite Nativo (${nativeInvite.groupName || targetJid})`,
@@ -597,7 +728,7 @@ async function inspectIncomingMessage(msg) {
     }
   }
 
-  // 3. Enviar texto da mensagem para o Buscador Inteligente de Preços (monitora todos os arquivados, grupos, comunidades e listas)
+  // 3. Enviar texto da mensagem para o Buscador Inteligente de Preços
   if (!msg.key?.fromMe) {
     await forwardMessageToProductParser(msg);
   }
@@ -619,13 +750,14 @@ async function startWhatsApp() {
       auth: state,
       printQRInTerminal: false,
       browser: ['Buscador PXT & Painel VPS', 'Chrome', '1.0.0'],
-      syncFullHistory: true
+      syncFullHistory: true,
+      shouldSyncHistoryMessage: () => true
     });
 
     waSocket.ev.on('creds.update', saveCreds);
 
-    // Capturar todos os contatos e todas as conversas já arquivadas no celular ao sincronizar o WhatsApp
-    waSocket.ev.on('messaging-history.set', async ({ chats, contacts, messages }) => {
+    // Capturar todos os contatos, conversas arquivadas e mensagens de histórico (inclusive ON_DEMAND)
+    waSocket.ev.on('messaging-history.set', async ({ chats, contacts, messages, syncType }) => {
       try {
         if (Array.isArray(contacts)) {
           for (const c of contacts) {
@@ -639,7 +771,7 @@ async function startWhatsApp() {
         if (Array.isArray(chats)) {
           for (const ch of chats) {
             if (!ch || !ch.id || ch.id === 'status@broadcast') continue;
-            const chName = ch.name || ch.subject || contactNameCache.get(ch.id) || '';
+            const chName = ch.name || ch.displayName || ch.subject || contactNameCache.get(ch.id) || '';
             if (chName) {
               if (ch.id.endsWith('@g.us')) groupSubjectCache.set(ch.id, chName);
               else contactNameCache.set(ch.id, chName);
@@ -655,20 +787,21 @@ async function startWhatsApp() {
         }
         if (archivedDetected > 0) {
           saveMonitoredArchived();
-          addLog(`📂 Sincronização de Arquivados: ${archivedDetected} contatos/grupos arquivados no WhatsApp estão sendo monitorados!`);
+          addLog(`📂 Sincronização de Arquivados: ${archivedDetected} contatos/grupos arquivados detectados!`);
         }
-        // Inspecionar mensagens recentes das conversas arquivadas
-        if (Array.isArray(messages)) {
-          for (const m of messages.slice(-120)) {
-            if (m && m.key && (monitoredArchivedMap.has(m.key.remoteJid) || m.key.remoteJid?.endsWith('@g.us'))) {
+        if (Array.isArray(messages) && messages.length > 0) {
+          addLog(`📥 Processando ${messages.length} mensagens do histórico sincronizado (tipo ${syncType ?? 'histórico'})...`);
+          for (const m of messages) {
+            if (m && m.key) {
               await inspectIncomingMessage(m);
             }
           }
         }
-      } catch {}
+      } catch (err) {
+        addLog(`Erro ao processar histórico: ${err.message}`);
+      }
     });
 
-    // Quando o usuário arquivar qualquer contato manualmente no celular, passa a monitorar na hora
     waSocket.ev.on('chats.upsert', (chats) => {
       if (!Array.isArray(chats)) return;
       let added = 0;
@@ -685,19 +818,38 @@ async function startWhatsApp() {
       if (added > 0) saveMonitoredArchived();
     });
 
-    waSocket.ev.on('chats.update', (updates) => {
+    waSocket.ev.on('chats.update', async (updates) => {
       if (!Array.isArray(updates)) return;
+      let changed = false;
       for (const u of updates) {
-        if (u && u.id && (u.archived === true || u.archive === true)) {
+        if (!u || !u.id || u.id === 'status@broadcast') continue;
+
+        if (u.archiveMessageRange) {
+          saveRealAnchorFromRange(u.id, u.archiveMessageRange);
+        }
+        if (u.markReadMessageRange) {
+          saveRealAnchorFromRange(u.id, u.markReadMessageRange);
+        }
+
+        if (u.archived === true || u.archive === true) {
           const chName = u.name || u.subject || contactNameCache.get(u.id) || groupSubjectCache.get(u.id) || u.id.split('@')[0];
+          const isNew = !monitoredArchivedMap.has(u.id);
           registerMonitoredArchivedChat(u.id, {
             name: chName,
             type: u.id.endsWith('@g.us') ? 'Grupo / Comunidade Arquivada' : 'Contato Arquivado no WhatsApp'
           });
-          addLog(`👁️ Contato/Chat arquivado detectado e adicionado ao monitoramento: ${chName} (${u.id})`);
-          saveMonitoredArchived();
+          changed = true;
+          if (isNew) {
+            addLog(`👁️ Contato/Chat arquivado adicionado ao monitoramento: ${chName} (${u.id})`);
+          }
+          // Se tiver âncora real e ainda não pediu histórico, já solicita as últimas mensagens
+          if (!historyRequestedJids.has(u.id) && realMessageAnchorsMap.has(u.id)) {
+            historyRequestedJids.add(u.id);
+            setTimeout(() => requestOnDemandHistoryForChat(u.id, 50), 1000);
+          }
         }
       }
+      if (changed) saveMonitoredArchived();
     });
 
     waSocket.ev.on('contacts.upsert', (contacts) => {
@@ -739,8 +891,8 @@ async function startWhatsApp() {
           id: waSocket.user?.id || '',
           name: waSocket.user?.name || waSocket.user?.notify || 'Conectado'
         };
-        addLog(`WhatsApp conectado: ${connectedUser.name} (${connectedUser.id}). Monitoramento de TODOS os Contatos Arquivados, Comunidades e Grupos ATIVO!`);
-        setTimeout(() => syncAndArchiveAllParticipatingGroups(), 4000);
+        addLog(`WhatsApp conectado: ${connectedUser.name} (${connectedUser.id}). Iniciando vistoria automática de Arquivados & Comunidades...`);
+        setTimeout(() => deepScanAllArchivedAndCommunities(), 3500);
       }
 
       if (connection === 'close') {
@@ -774,9 +926,9 @@ async function startWhatsApp() {
           if (g.subject) groupSubjectCache.set(g.id, g.subject);
           const isComm = !!(g.isCommunity || g.isCommunityAnnounce || g.linkedParent);
           addLog(`📥 Novo grupo/comunidade detectado: "${g.subject || g.id}". Arquivando e monitorando automaticamente...`);
-          await archiveChatJid(g.id, `["${g.subject || g.id}"]`, g.subject || 'Grupo', isComm ? 'Comunidade' : 'Grupo');
+          await archiveChatJid(g.id, `["${g.subject || g.id}"]`, g.subject || 'Grupo', isComm ? 'Comunidade' : 'Grupo', true);
           if (g.linkedParent) {
-            await archiveChatJid(g.linkedParent, `[Comunidade-Mãe]`, `${g.subject || 'Comunidade'} (Mãe)`, 'Comunidade-Mãe');
+            await archiveChatJid(g.linkedParent, `[Comunidade-Mãe]`, `${g.subject || 'Comunidade'} (Mãe)`, 'Comunidade-Mãe', true);
           }
           if (!joinedCommunitiesMap.has(g.id)) {
             joinedCommunitiesMap.set(g.id, {
@@ -859,9 +1011,8 @@ app.post('/api/send', async (req, res) => {
     }
     addLog(`✅ Mensagem enviada para ${name || phone} (${jid})`);
 
-    // Arquivar automaticamente a conversa do fornecedor e registrá-lo nos Contatos Arquivados Monitorados
-    await archiveChatJid(jid, `[Fornecedor arquivado e monitorado: ${name || phone}]`, name || phone, 'Fornecedor Arquivado');
-    setTimeout(() => archiveChatJid(jid, '', name || phone, 'Fornecedor Arquivado'), 2500);
+    await archiveChatJid(jid, `[Fornecedor arquivado e monitorado: ${name || phone}]`, name || phone, 'Fornecedor Arquivado', true);
+    setTimeout(() => archiveChatJid(jid, '', name || phone, 'Fornecedor Arquivado', true), 2500);
 
     return res.json({ ok: true, jid });
   } catch (err) {
@@ -888,14 +1039,17 @@ app.post('/api/archive-all', async (req, res) => {
   if (connectionStatus !== 'CONNECTED' || !waSocket) {
     return res.status(400).json({ ok: false, error: 'WhatsApp não está conectado.' });
   }
-  const groupCount = await syncAndArchiveAllParticipatingGroups();
-  let chatCount = 0;
-  for (const jid of autoArchiveJids) {
-    const ok = await archiveChatJid(jid, '');
-    if (ok) chatCount++;
-  }
-  addLog(`📦 Arquivamento e Monitoramento Geral concluído (${groupCount} grupos/comunidades + ${chatCount} contatos arquivados).`);
-  res.json({ ok: true, groupCount, chatCount });
+  const scanRes = await deepScanAllArchivedAndCommunities();
+  res.json({
+    ok: true,
+    groupCount: scanRes.monitoredCount || 0,
+    chatCount: scanRes.historyRequestsSent || 0
+  });
+});
+
+app.post('/api/scan-archived', async (req, res) => {
+  const scanRes = await deepScanAllArchivedAndCommunities();
+  res.json(scanRes);
 });
 
 app.post('/api/logout', async (req, res) => {
