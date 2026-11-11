@@ -417,7 +417,7 @@ def parse_supplier_message(text, supplier_name, supplier_phone, group_name="", d
         price = extract_price_from_line(line)
         has_product_kw = looks_like_product_header(line)
 
-        # Caso 1: Cabeçalho de modelo sem preço (ex: "📱 IPHONE 16 PRO MAX 256GB" ou "15 128" ou "📱 iPhone 15 Pro Max 512GB Natural")
+        # Caso 1: Cabeçalho de modelo sem preço (ex: "IPHONE 16 PRO MAX 256GB" ou "15 128" ou "iPhone 15 Pro Max 512GB Natural")
         if has_product_kw and price is None:
             current_header_model = normalize_model_name(line)
             current_header_capacity = extract_capacity(line)

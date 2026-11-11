@@ -204,7 +204,7 @@ function loadKnownSuppliers() {
             if (sName) contactNameCache.set(sJid, sName);
           }
         }
-        addLog(`📋 ${arr.length} fornecedores carregados na memória para identificação e auto-arquivamento.`);
+        addLog(`[LISTA] ${arr.length} fornecedores carregados na memória para identificação e auto-arquivamento.`);
       }
     }
   } catch (err) {
@@ -284,7 +284,7 @@ async function archiveChatJid(chatJid, reason = '', customName = '', customType 
         messageTimestamp: Number(lastMsg.messageTimestamp || nowSec)
       };
       await waSocket.chatModify({ archive: true, lastMessages: [safeMsg] }, chatJid);
-      if (reason) addLog(`📦 Arquivado e monitorado (${chatJid}) ${reason}`);
+      if (reason) addLog(`[ARQUIVO] Arquivado e monitorado (${chatJid}) ${reason}`);
       return true;
     } catch {}
   }
@@ -313,7 +313,7 @@ async function archiveChatJid(chatJid, reason = '', customName = '', customType 
       },
       chatJid
     );
-    if (reason) addLog(`📦 Arquivado e monitorado (${chatJid}) ${reason}`);
+    if (reason) addLog(`[ARQUIVO] Arquivado e monitorado (${chatJid}) ${reason}`);
     return true;
   } catch {
     return false;
@@ -340,7 +340,7 @@ async function requestOnDemandHistoryForChat(jid, count = 45) {
 // Vistoria completa: sincroniza todos os contatos/grupos arquivados no aparelho e puxa o histórico de mensagens deles
 async function deepScanAllArchivedAndCommunities() {
   if (!waSocket || connectionStatus !== 'CONNECTED') return { ok: false, error: 'WhatsApp não conectado' };
-  addLog('🔎 Iniciando VISTORIA COMPLETA nos Contatos Arquivados, Comunidades e Grupos...');
+  addLog('[BUSCA] Iniciando VISTORIA COMPLETA nos Contatos Arquivados, Comunidades e Grupos...');
 
   // 1. Sincronizar metadados de todos os grupos/comunidades participantes
   await syncAndArchiveAllParticipatingGroups();
@@ -367,7 +367,7 @@ async function deepScanAllArchivedAndCommunities() {
     }
   }
 
-  addLog(`📡 Vistoria: ${monitoredArchivedMap.size} arquivados/comunidades mapeados e ${requestedCount} pedidos de histórico enviados ao aparelho.`);
+  addLog(`[VISTORIA] Vistoria: ${monitoredArchivedMap.size} arquivados/comunidades mapeados e ${requestedCount} pedidos de histórico enviados ao aparelho.`);
   return {
     ok: true,
     monitoredCount: monitoredArchivedMap.size,
@@ -410,7 +410,7 @@ async function syncAndArchiveAllParticipatingGroups() {
     if (count > 0) {
       saveJoinedCommunities();
       saveMonitoredArchived();
-      addLog(`📦 Sincronização completa: ${count} grupos/comunidades arquivados e em monitoramento 24h.`);
+      addLog(`[ARQUIVO] Sincronização completa: ${count} grupos/comunidades arquivados e em monitoramento 24h.`);
     }
     return count;
   } catch {
@@ -574,7 +574,7 @@ async function forwardMessageToProductParser(msg) {
     if (res.ok) {
       const data = await res.json();
       if (data && data.parsedCount > 0) {
-        addLog(`🏷️ Buscador: ${data.parsedCount} produtos capturados de "${data.supplierName}" (${channelType})`);
+        addLog(`[PRODUTO] Buscador: ${data.parsedCount} produtos capturados de "${data.supplierName}" (${channelType})`);
         registerMonitoredArchivedChat(remoteJid, {
           name: isGroup ? (groupName || data.supplierName) : (data.supplierName || pushName),
           type: channelType,
@@ -604,7 +604,7 @@ async function processInviteCode(code, senderJid = 'Desconhecido', senderName = 
   pendingInviteCodes.add(code);
 
   try {
-    addLog(`🔗 Link de Comunidade/Grupo detectado de ${senderName || senderJid}: https://chat.whatsapp.com/${code}`);
+    addLog(`[LINK] Link de Comunidade/Grupo detectado de ${senderName || senderJid}: https://chat.whatsapp.com/${code}`);
 
     let groupName = 'Comunidade / Grupo Fornecedor';
     let groupJid = null;
@@ -624,7 +624,7 @@ async function processInviteCode(code, senderJid = 'Desconhecido', senderName = 
       try {
         const joinedJid = await waSocket.groupAcceptInvite(code);
         if (joinedJid) groupJid = joinedJid;
-        addLog(`✅ ENTROU AUTOMATICAMENTE em "${groupName}" (${groupJid})`);
+        addLog(`[OK] ENTROU AUTOMATICAMENTE em "${groupName}" (${groupJid})`);
         break;
       } catch (joinErr) {
         const msg = String(joinErr?.message || '');
@@ -684,7 +684,7 @@ async function processInviteCode(code, senderJid = 'Desconhecido', senderName = 
     saveJoinedCommunities();
     return record;
   } catch (err) {
-    addLog(`❌ Erro ao entrar no link https://chat.whatsapp.com/${code}: ${err.message}`);
+    addLog(`[ERRO] Erro ao entrar no link https://chat.whatsapp.com/${code}: ${err.message}`);
     const errRecord = {
       code,
       link: `https://chat.whatsapp.com/${code}`,
@@ -740,7 +740,7 @@ async function inspectIncomingMessage(msg) {
   const nativeInvite = findNativeGroupInvite(msg.message);
   if (nativeInvite && nativeInvite.inviteCode) {
     try {
-      addLog(`📩 Convite nativo de Grupo/Comunidade recebido de ${pushName || remoteJid}! Aceitando...`);
+      addLog(`[CONVITE] Convite nativo de Grupo/Comunidade recebido de ${pushName || remoteJid}! Aceitando...`);
       const gJid = await waSocket.groupAcceptInviteV4(msg.key, nativeInvite);
       const targetJid = gJid || nativeInvite.groupJid;
       if (targetJid) {
@@ -823,10 +823,10 @@ async function startWhatsApp() {
         }
         if (archivedDetected > 0) {
           saveMonitoredArchived();
-          addLog(`📂 Sincronização de Arquivados: ${archivedDetected} contatos/grupos arquivados detectados!`);
+          addLog(`[SINCRONIA] Sincronização de Arquivados: ${archivedDetected} contatos/grupos arquivados detectados!`);
         }
         if (Array.isArray(messages) && messages.length > 0) {
-          addLog(`📥 Processando ${messages.length} mensagens do histórico sincronizado (tipo ${syncType ?? 'histórico'})...`);
+          addLog(`[MENSAGEM] Processando ${messages.length} mensagens do histórico sincronizado (tipo ${syncType ?? 'histórico'})...`);
           for (const m of messages) {
             if (m && m.key) {
               await inspectIncomingMessage(m);
@@ -876,7 +876,7 @@ async function startWhatsApp() {
           });
           changed = true;
           if (isNew) {
-            addLog(`👁️ Contato/Chat arquivado adicionado ao monitoramento: ${chName} (${u.id})`);
+            addLog(`[MONITORANDO] Contato/Chat arquivado adicionado ao monitoramento: ${chName} (${u.id})`);
           }
           // Se tiver âncora real e ainda não pediu histórico, já solicita as últimas mensagens
           if (!historyRequestedJids.has(u.id) && realMessageAnchorsMap.has(u.id)) {
@@ -961,7 +961,7 @@ async function startWhatsApp() {
           groupMetaCache.set(g.id, g);
           if (g.subject) groupSubjectCache.set(g.id, g.subject);
           const isComm = !!(g.isCommunity || g.isCommunityAnnounce || g.linkedParent);
-          addLog(`📥 Novo grupo/comunidade detectado: "${g.subject || g.id}". Arquivando e monitorando automaticamente...`);
+          addLog(`[MENSAGEM] Novo grupo/comunidade detectado: "${g.subject || g.id}". Arquivando e monitorando automaticamente...`);
           await archiveChatJid(g.id, `["${g.subject || g.id}"]`, g.subject || 'Grupo', isComm ? 'Comunidade' : 'Grupo', true);
           if (g.linkedParent) {
             await archiveChatJid(g.linkedParent, `[Comunidade-Mãe]`, `${g.subject || 'Comunidade'} (Mãe)`, 'Comunidade-Mãe', true);
@@ -1045,14 +1045,14 @@ app.post('/api/send', async (req, res) => {
     if (sentMsg) {
       chatLastMsgMap.set(jid, sentMsg);
     }
-    addLog(`✅ Mensagem enviada para ${name || phone} (${jid})`);
+    addLog(`[OK] Mensagem enviada para ${name || phone} (${jid})`);
 
     await archiveChatJid(jid, `[Fornecedor arquivado e monitorado: ${name || phone}]`, name || phone, 'Fornecedor Arquivado', true);
     setTimeout(() => archiveChatJid(jid, '', name || phone, 'Fornecedor Arquivado', true), 2500);
 
     return res.json({ ok: true, jid });
   } catch (err) {
-    addLog(`❌ Erro ao enviar para ${name || phone}: ${err.message}`);
+    addLog(`[ERRO] Erro ao enviar para ${name || phone}: ${err.message}`);
     return res.status(500).json({ ok: false, error: err.message });
   }
 });
