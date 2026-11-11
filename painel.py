@@ -741,7 +741,7 @@ BUSCADOR_HTML = """<!DOCTYPE html>
       </select>
 
       <select id="capFilter" onchange="renderProducts()">
-        <option value="ALL">[SALVO] Todas as capacidades</option>
+        <option value="ALL">Todas as capacidades</option>
       </select>
 
       <select id="colorFilter" onchange="renderProducts()">
@@ -897,7 +897,7 @@ BUSCADOR_HTML = """<!DOCTYPE html>
       const container = document.getElementById('productsContainer');
       if (displayList.length === 0) {
         container.innerHTML = '<div class="empty-state">' +
-          '<div style="font-size:16px;font-weight:700;margin-bottom:10px;color:var(--muted);">[NENHUM ITEM]</div>' +
+          '<div style="font-size:16px;font-weight:700;margin-bottom:10px;color:var(--muted);"></div>' +
           '<h3 style="margin:0 0 8px 0;color:#e2e8f0;">Nenhum produto encontrado para este filtro</h3>' +
           '<p style="margin:0;font-size:14px;">Assim que os fornecedores enviarem as listas nos grupos/comunidades do WhatsApp (ou você importar uma lista no <a href="/admin" style="color:#38bdf8;">Painel Administrativo</a>), os melhores preços aparecerão aqui automaticamente separados por categoria!</p>' +
         '</div>';
@@ -920,7 +920,7 @@ BUSCADOR_HTML = """<!DOCTYPE html>
             '</div>' +
             '<div class="prod-title">' + p.modelo + '</div>' +
             '<div class="prod-specs">' +
-              (p.capacidade && p.capacidade !== '-' ? '<span class="spec-pill">[SALVO] ' + p.capacidade + '</span>' : '') +
+              (p.capacidade && p.capacidade !== '-' ? '<span class="spec-pill">' + p.capacidade + '</span>' : '') +
               (p.cor && p.cor !== '-' ? '<span class="spec-pill">Cor: ' + p.cor + '</span>' : '') +
               '<span class="spec-pill">' + (p.condicao || 'Novo') + '</span>' +
               (viewMode === 'BEST' && totalOffers > 1 ? '<span class="spec-pill" style="background:rgba(16,185,129,0.15);color:#34d399;">Melhor Preço entre ' + totalOffers + ' listas</span>' : '') +
@@ -1241,7 +1241,7 @@ ADMIN_HTML = """<!DOCTYPE html>
         </div>
 
         <div class="btn-row">
-          <button class="btn-blue" onclick="saveConfig()">[SALVO] Salvar Mensagem</button>
+          <button class="btn-blue" onclick="saveConfig()">Salvar Mensagem</button>
           <button class="btn-green" id="btnStart" onclick="startCampaign()">Autorizar e Iniciar Disparo</button>
           <button class="btn-warn" id="btnStop" onclick="stopCampaign()" disabled>Pausar Disparo</button>
           <button class="btn-ghost" onclick="resetHistory()">[RESET] Zerar Histórico de Enviados</button>
@@ -1839,7 +1839,7 @@ class PanelHandler(BaseHTTPRequestHandler):
             if "delay_max" in body:
                 cfg["delay_max"] = max(cfg["delay_min"], int(body["delay_max"]))
             save_config(cfg)
-            add_panel_log("[SALVO] Configurações e mensagem atualizadas no painel.")
+            add_panel_log("Configurações e mensagem atualizadas no painel.")
             self._send_json({"ok": True, "config": cfg})
             return
 
