@@ -6,17 +6,20 @@ COLOR_ALIASES = {
     "BLACK": "PRETO",
     "PRETO": "PRETO",
     "PRETA": "PRETO",
+    "CAIXA PRETA": "PRETO",
     "BLACK TITANIUM": "PRETO TITÂNIO",
     "TITANIO PRETO": "PRETO TITÂNIO",
     "MIDNIGHT": "MEIA-NOITE",
     "MEIA NOITE": "MEIA-NOITE",
     "MEIA-NOITE": "MEIA-NOITE",
+    "NIGHT SKY": "NIGHT SKY",
     "SPACE GRAY": "CINZA ESPACIAL",
     "SPACE GREY": "CINZA ESPACIAL",
     "SPACE BLACK": "PRETO ESPACIAL",
     "CINZA": "CINZA",
     "GRAPHITE": "GRAFITE",
     "GRAFITE": "GRAFITE",
+    "STAR WHITE": "BRANCO",
     "WHITE": "BRANCO",
     "BRANCO": "BRANCO",
     "BRANCA": "BRANCO",
@@ -37,6 +40,10 @@ COLOR_ALIASES = {
     "ROSE GOLD": "ROSA",
     "PINK": "ROSA",
     "ROSA": "ROSA",
+    "LAVANDA": "LAVANDA",
+    "LAVENDER": "LAVANDA",
+    "GLACIER": "GLACIER",
+    "BURGUNDY": "BURGUNDY",
     "BLUE": "AZUL",
     "AZUL": "AZUL",
     "ULTRAMARINE": "AZUL ULTRAMARINO",
@@ -71,7 +78,7 @@ SEMINOVO_KEYWORDS = [
 
 PRODUCT_KEYWORDS = [
     "IPHONE", "IPH ", "IP ", "MACBOOK", "MAC MINI", "IMAC", "MAC STUDIO",
-    "IPAD", "APPLE WATCH", "WATCH S", "WATCH SE", "WATCH ULTRA", "SERIE 9", "SERIE 10", "SERIES 9", "SERIES 10",
+    "IPAD", "APPLE WATCH", "WATCH S", "WATCH SE", "WATCH ULTRA", "SERIE 9", "SERIE 10", "SERIES 9", "SERIES 10", "S10 ", "S11 ", "S12 ",
     "AIRPODS", "EARPODS", "AIRTAG", "APPLE PENCIL", "PENCIL", "MAGIC MOUSE", "MAGIC KEYBOARD",
     "REDMI", "POCO", "XIAOMI", "REALME", "GALAXY", "SAMSUNG", "MOTO ", "MOTOROLA", "INFINIX", "HONOR", "TECNO",
     "PS5", "PLAYSTATION", "XBOX", "NINTENDO", "SWITCH", "JBL", "STARLINK", "GARMIN", "GOPRO", "DJI"
@@ -79,45 +86,35 @@ PRODUCT_KEYWORDS = [
 
 
 def clean_line(line):
-    # Remove emojis e caracteres decorativos mantendo letras, números, R$, pontuação básica
     cleaned = re.sub(r"[^\w\s\$\.,/\-\+\(\)%]", " ", line, flags=re.UNICODE)
     cleaned = re.sub(r"\s+", " ", cleaned).strip()
     return cleaned
 
 
 def extract_price_from_line(line):
-    """
-    Extrai o valor de custo no final ou meio da linha (ex: R$ 4.350,00 | 4.350 | 4350 | $ 7.150).
-    Ignora números que claramente fazem parte do modelo/capacidade (ex: 128, 256, 512, 16, 15).
-    """
     upper = line.upper()
-    # Remover temporariamente capacidades (64GB, 128GB, 256GB, 512GB, 8/256, 12/512) para não confundir com preço
     scrubbed = re.sub(r"\b\d{1,2}\s*/\s*\d{2,4}\s*(?:GB|TB)?\b", " ", upper)
     scrubbed = re.sub(r"\b(?:16|32|64|128|256|512|1024)\s*(?:GB|G)\b", " ", scrubbed)
     scrubbed = re.sub(r"\b(?:1|2|4)\s*TB\b", " ", scrubbed)
     scrubbed = re.sub(r"\b\d{2,3}\s*%\b", " ", scrubbed)
     scrubbed = re.sub(r"\b(?:MM|40MM|41MM|42MM|44MM|45MM|46MM|49MM)\b", " ", scrubbed)
 
-    # 1. Procurar padrão explícito com R$ ou $
     m_rs = re.findall(r"(?:R\$|\$)\s*(\d{1,2}\.\d{3}(?:,\d{2})?|\d{3,5}(?:,\d{2})?)", scrubbed)
     if m_rs:
         val = parse_num_br(m_rs[-1])
         if 50 <= val <= 45000:
             return val
 
-    # 2. Procurar número formatado com milhar (ex: 4.350 ou 4.350,00 ou 10.500)
     m_mil = re.findall(r"\b(\d{1,2}\.\d{3}(?:,\d{2})?)\b", scrubbed)
     if m_mil:
         val = parse_num_br(m_mil[-1])
         if 100 <= val <= 45000:
             return val
 
-    # 3. Procurar número inteiro de 3 a 5 dígitos no final da linha (ex: "- 4350" ou "PRETO 4350")
     m_end = re.search(r"(?:[\-\:\=]|(?:\s))(\d{3,5}(?:,\d{2})?)\s*$", scrubbed)
     if m_end:
         val = parse_num_br(m_end.group(1))
-        # Evitar confundir anos ou capacidades soltas (128, 256, 512, 2023, 2024, 2025, 2026) se não tiver contexto
-        if val not in (128, 256, 512) and 120 <= val <= 45000:
+        if val not in (64, 128, 256, 512, 1024, 2023, 2024, 2025, 2026) and 120 <= val <= 45000:
             return val
 
     return None
@@ -128,7 +125,6 @@ def parse_num_br(s):
     if "," in s:
         s = s.replace(".", "").replace(",", ".")
     else:
-        # Se tiver ponto seguido de 3 dígitos (ex: 4.350), remover o ponto de milhar
         if re.match(r"^\d{1,2}\.\d{3}$", s):
             s = s.replace(".", "")
     try:
@@ -139,7 +135,6 @@ def parse_num_br(s):
 
 def extract_capacity(text):
     upper = text.upper()
-    # Ex: 8/256GB, 12/512GB, 16/512GB
     m_ram_rom = re.search(r"\b(\d{1,2}\s*/\s*(?:64|128|256|512|1024))\s*(?:GB|G)?\b", upper)
     if m_ram_rom:
         return m_ram_rom.group(1).replace(" ", "") + "GB"
@@ -157,7 +152,6 @@ def extract_capacity(text):
 
 def extract_color(text):
     upper = text.upper()
-    # Ordenar chaves por tamanho decrescente para casar "BLACK TITANIUM" antes de "BLACK"
     for key in sorted(COLOR_ALIASES.keys(), key=len, reverse=True):
         if re.search(r"\b" + re.escape(key) + r"\b", upper):
             return COLOR_ALIASES[key]
@@ -174,8 +168,28 @@ def is_seminovo(text, section_is_seminovo=False):
     return False
 
 
+def is_shorthand_iphone_line(line):
+    """
+    Detecta cabeçalhos curtos de iPhone onde o fornecedor omite a palavra IPHONE,
+    ex: '15 128GB', '15 PRO MAX 256GB', '16 PRO 128GB', '17 AIR 256GB', '16E 128GB'
+    """
+    u = line.upper().strip()
+    if re.match(
+        r"^(?:IPHONE\s+|IP\s+|IPH\s+)?(1[1-8](?:E)?)\s*(?:(AIR|MINI|PLUS|PRO\s*MAX|PRO|PM|DUO))?\s*(?:(64|128|256|512|1024)\s*(?:GB|G)?|([124])\s*TB)?(?:\s+(?:LL/A|HN/A|CH/A|JA/A|BR/A|ZP/A|AH/A|E-SIM|ESIM|ANATEL))?\s*$",
+        u,
+    ):
+        # Precisa ter variante (PRO, PRO MAX, PLUS, AIR, E) ou capacidade explícita (128GB, 256GB...)
+        if any(x in u for x in ["PRO", "MAX", "PLUS", "AIR", "MINI", "16E", "17E", "GB", "TB", "64", "128", "256", "512"]):
+            return True
+    return False
+
+
 def normalize_model_name(raw_text):
-    upper = raw_text.upper()
+    upper = raw_text.upper().strip()
+
+    # Ignorar se for apenas "LINHA IPHONE 15" (título de seção genérico)
+    upper = re.sub(r"^\bLINHA\s+", "", upper)
+
     # Remover preço do texto
     upper = re.sub(r"(?:R\$|\$)\s*\d{1,2}\.\d{3}(?:,\d{2})?", " ", upper)
     upper = re.sub(r"(?:R\$|\$)\s*\d{3,5}(?:,\d{2})?", " ", upper)
@@ -183,9 +197,13 @@ def normalize_model_name(raw_text):
     upper = re.sub(r"(?:[\-\:\=])\s*\d{3,5}(?:,\d{2})?\s*$", " ", upper)
     upper = re.sub(r"\s+\d{3,5}\s*$", " ", upper)
 
+    # Se começa direto com 11..18 (ex: "15 PRO MAX 256GB" ou "16 128GB"), prefixar IPHONE
+    if re.match(r"^(1[1-8](?:E)?)\b", upper):
+        upper = "IPHONE " + upper
+
     # Padronizar abreviações de iPhone (IP 15 -> IPHONE 15, IPH 16 -> IPHONE 16, PM -> PRO MAX)
-    upper = re.sub(r"\b(?:IPH|IP)\s*(1[1-7]|[78]|X[RS]?|SE)\b", r"IPHONE \1", upper)
-    upper = re.sub(r"\b(IPHONE\s+1[1-7])\s+PM\b", r"\1 PRO MAX", upper)
+    upper = re.sub(r"\b(?:IPH|IP)\s*(1[1-8](?:E)?|[78]|X[RS]?|SE)\b", r"IPHONE \1", upper)
+    upper = re.sub(r"\b(IPHONE\s+1[1-8])\s+PM\b", r"\1 PRO MAX", upper)
 
     # Remover cores conhecidas do nome do modelo para padronizar o agrupamento
     for key in sorted(COLOR_ALIASES.keys(), key=len, reverse=True):
@@ -195,11 +213,8 @@ def normalize_model_name(raw_text):
     upper = re.sub(r"\b\d{1,2}\s*/\s*(?:64|128|256|512|1024)\s*(?:GB|G)?\b", " ", upper)
     upper = re.sub(r"\b(?:32|64|128|256|512|1024)\s*(?:GB|G)\b", " ", upper)
     upper = re.sub(r"\b[124]\s*TB\b", " ", upper)
-
-    # Se o número da capacidade (128, 256, 512) ficou solto após IPHONE X ...
     upper = re.sub(r"\b(64|128|256|512)\b", " ", upper)
 
-    # Limpar símbolos extras
     upper = re.sub(r"[^A-Z0-9\s\+\-/]", " ", upper)
     upper = re.sub(r"\s+", " ", upper).strip(" -/+")
     return upper
@@ -207,7 +222,7 @@ def normalize_model_name(raw_text):
 
 def classify_category(model_name, full_text, seminovo_flag):
     u = (model_name + " " + full_text).upper()
-    if "IPHONE" in u or re.search(r"\bIP\s*1[1-7]\b", u):
+    if "IPHONE" in u or re.search(r"\bIP\s*1[1-8]\b", u):
         return "iPhones Seminovos" if seminovo_flag else "iPhones"
     if any(k in u for k in ["MACBOOK", "MAC MINI", "IMAC", "MAC STUDIO"]):
         return "MacBook"
@@ -224,6 +239,8 @@ def classify_category(model_name, full_text, seminovo_flag):
 
 def looks_like_product_header(line):
     u = line.upper()
+    if is_shorthand_iphone_line(u):
+        return True
     for kw in PRODUCT_KEYWORDS:
         if kw in u:
             return True
@@ -231,10 +248,6 @@ def looks_like_product_header(line):
 
 
 def parse_supplier_message(text, supplier_name, supplier_phone, group_name="", date_str=None):
-    """
-    Recebe o texto bruto de uma mensagem de lista de fornecedor no WhatsApp
-    e retorna uma lista de dicionários de produtos estruturados.
-    """
     if not text or len(text.strip()) < 6:
         return []
 
@@ -243,7 +256,7 @@ def parse_supplier_message(text, supplier_name, supplier_phone, group_name="", d
     time_str = time.strftime("%H:%M:%S")
 
     lines = [clean_line(l) for l in text.splitlines()]
-    lines = [l for l in lines if len(l) >= 3]
+    lines = [l for l in lines if len(l) >= 2]
 
     parsed_products = []
     current_header_model = ""
@@ -253,7 +266,6 @@ def parse_supplier_message(text, supplier_name, supplier_phone, group_name="", d
     for line in lines:
         u = line.upper()
 
-        # Detectar mudança de seção para Seminovos / Swap / Vitrine vs Lacrados / Novos
         if any(k in u for k in ["SEMINOVO", "SEMI NOVO", "SEMI-NOVO", "VITRINE", "SWAP", "AS IS", "USADOS"]):
             if extract_price_from_line(line) is None and not looks_like_product_header(line):
                 section_seminovo = True
@@ -263,20 +275,24 @@ def parse_supplier_message(text, supplier_name, supplier_phone, group_name="", d
                 section_seminovo = False
                 continue
 
+        # Ignorar linhas que são apenas "LINHA IPHONE 15" sem capacidade nem variante
+        if re.match(r"^LINHA\s+IPHONE\s+\d+\s*$", u):
+            current_header_model = normalize_model_name(u)
+            current_header_capacity = "-"
+            continue
+
         price = extract_price_from_line(line)
         has_product_kw = looks_like_product_header(line)
 
-        # Caso 1: Linha tem nome de produto mas NÃO tem preço -> é um cabeçalho de bloco (ex: "📱 IPHONE 16 PRO MAX 256GB")
+        # Caso 1: Cabeçalho de modelo sem preço (ex: "📱 IPHONE 16 PRO MAX 256GB" ou "15 PRO MAX 256GB" ou "AIRPODS 4")
         if has_product_kw and price is None:
             current_header_model = normalize_model_name(line)
-            cap = extract_capacity(line)
-            if cap != "-":
-                current_header_capacity = cap
+            current_header_capacity = extract_capacity(line)
             if is_seminovo(line):
                 section_seminovo = True
             continue
 
-        # Caso 2: Linha tem nome de produto E tem preço na mesma linha (ex: "IPHONE 15 128GB PRETO R$ 4.350")
+        # Caso 2: Linha tem nome de produto E tem preço na mesma linha
         if has_product_kw and price is not None:
             model = normalize_model_name(line)
             if not model or len(model) < 3:
@@ -286,10 +302,8 @@ def parse_supplier_message(text, supplier_name, supplier_phone, group_name="", d
             sem = is_seminovo(line, section_seminovo)
             cat = classify_category(model, line, sem)
 
-            # Atualizar cabeçalho atual caso as linhas seguintes sejam apenas cores
             current_header_model = model
-            if cap != "-":
-                current_header_capacity = cap
+            current_header_capacity = cap
 
             parsed_products.append({
                 "modelo": model,
@@ -312,7 +326,6 @@ def parse_supplier_message(text, supplier_name, supplier_phone, group_name="", d
             color = extract_color(line)
             cap_line = extract_capacity(line)
             cap = cap_line if cap_line != "-" else current_header_capacity
-            # Se a linha tiver pelo menos uma cor reconhecida ou texto curto de variação
             if color != "-" or len(line) <= 35:
                 sem = is_seminovo(line, section_seminovo)
                 cat = classify_category(current_header_model, line, sem)

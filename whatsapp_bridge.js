@@ -83,6 +83,22 @@ function readJsonSafe(filePath) {
   return JSON.parse(raw);
 }
 
+function resolveLidJid(jid) {
+  if (!jid || typeof jid !== 'string') return jid || '';
+  if (!jid.endsWith('@lid')) return jid;
+  const lidNum = jid.split('@')[0].split(':')[0];
+  try {
+    const revFile = path.join(authFolder, `lid-mapping-${lidNum}_reverse.json`);
+    if (fs.existsSync(revFile)) {
+      const phone = JSON.parse(fs.readFileSync(revFile, 'utf-8')).replace(/\D/g, '');
+      if (phone) {
+        return `${phone}@s.whatsapp.net`;
+      }
+    }
+  } catch {}
+  return jid;
+}
+
 function normalizePhoneDigits(raw) {
   const d = String(raw || '').replace(/\D/g, '');
   if (!d) return [];
@@ -126,13 +142,15 @@ function registerMonitoredArchivedChat(jid, info = {}) {
   if (!jid || jid === 'status@broadcast') return;
   autoArchiveJids.add(jid);
   const isGroup = jid.endsWith('@g.us');
+  const resolvedJid = isGroup ? jid : resolveLidJid(jid);
   const existing = monitoredArchivedMap.get(jid) || {};
   const name =
     info.name ||
     existing.name ||
     groupSubjectCache.get(jid) ||
     contactNameCache.get(jid) ||
-    jid.split('@')[0];
+    contactNameCache.get(resolvedJid) ||
+    resolvedJid.split('@')[0];
 
   const record = {
     jid,
@@ -495,14 +513,21 @@ async function forwardMessageToProductParser(msg) {
 
     const isGroup = remoteJid.endsWith('@g.us');
     const isBroadcast = !!(msg.broadcast || msg.key?.remoteJid?.endsWith('@broadcast'));
-    const participantJid = isGroup
+    const rawParticipant = isGroup
       ? (msg.key?.participant || msg.key?.participantAlt || '')
       : (msg.key?.senderPn || msg.key?.remoteJidAlt || remoteJid);
+    const participantJid = resolveLidJid(rawParticipant);
+    const resolvedRemoteJid = isGroup ? remoteJid : resolveLidJid(remoteJid);
 
-    const savedContactName = contactNameCache.get(remoteJid) || contactNameCache.get(participantJid) || '';
+    const savedContactName =
+      contactNameCache.get(remoteJid) ||
+      contactNameCache.get(resolvedRemoteJid) ||
+      contactNameCache.get(participantJid) ||
+      '';
     const pushName = msg.pushName || savedContactName || '';
     if (pushName && !isGroup) {
       contactNameCache.set(remoteJid, pushName);
+      contactNameCache.set(resolvedRemoteJid, pushName);
     }
 
     let groupName = '';
