@@ -8,7 +8,7 @@ import time
 import urllib.error
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import urlparse
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 FORNECEDORES_FILE = os.path.join(BASE_DIR, "fornecedores.json")
@@ -123,7 +123,7 @@ def ensure_bridge_running():
         bridge_get("/api/status")
         return
     except Exception:
-        add_panel_log("Iniciando motor WhatsApp interno (porta 3051)...")
+        add_panel_log("Iniciando motor WhatsApp + Auto-Entrada em Comunidades (porta 3051)...")
         env = dict(os.environ)
         env["BRIDGE_PORT"] = str(BRIDGE_PORT)
         subprocess.Popen(
@@ -137,7 +137,7 @@ def ensure_bridge_running():
             time.sleep(1)
             try:
                 bridge_get("/api/status")
-                add_panel_log("Motor WhatsApp online! Nenhum envio será feito sem sua autorização.")
+                add_panel_log("Motor WhatsApp online! Auto-Join e Auto-Arquivamento de Comunidades ATIVO.")
                 return
             except Exception:
                 pass
@@ -251,7 +251,6 @@ def campaign_worker():
             d_max = max(d_min, int(cfg.get("delay_max", 15)))
             wait_sec = round(random.uniform(d_min, d_max), 1)
 
-            # Aguardar respeitando eventual pedido de pausa imediata
             steps = int(wait_sec * 2)
             for _ in range(steps):
                 with state_lock:
@@ -271,7 +270,7 @@ HTML_PAGE = """<!DOCTYPE html>
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Painel Python VPS — Automação WhatsApp & Fornecedores</title>
+  <title>Painel Python VPS — Automação WhatsApp & Comunidades</title>
   <style>
     :root {
       --bg: #0b1120;
@@ -284,6 +283,7 @@ HTML_PAGE = """<!DOCTYPE html>
       --warn: #f59e0b;
       --danger: #ef4444;
       --blue: #3b82f6;
+      --purple: #a855f7;
     }
     * { box-sizing: border-box; }
     body {
@@ -294,7 +294,7 @@ HTML_PAGE = """<!DOCTYPE html>
       padding: 20px;
     }
     .container {
-      max-width: 1280px;
+      max-width: 1320px;
       margin: 0 auto;
     }
     header {
@@ -325,6 +325,7 @@ HTML_PAGE = """<!DOCTYPE html>
     .badge.CONNECTED { background: rgba(16, 185, 129, 0.2); color: #34d399; border: 1px solid #059669; }
     .badge.QR_READY { background: rgba(245, 158, 11, 0.2); color: #fbbf24; border: 1px solid #d97706; }
     .badge.DISCONNECTED, .badge.CONNECTING { background: rgba(148, 163, 184, 0.15); color: #cbd5e1; border: 1px solid #475569; }
+    .badge.AUTOJOIN { background: rgba(168, 85, 247, 0.2); color: #d8b4fe; border: 1px solid #9333ea; }
 
     .grid-top {
       display: grid;
@@ -341,6 +342,7 @@ HTML_PAGE = """<!DOCTYPE html>
       border-radius: 14px;
       padding: 20px;
       box-shadow: 0 8px 24px rgba(0,0,0,0.3);
+      margin-bottom: 20px;
     }
     .card h2 {
       margin: 0 0 14px 0;
@@ -427,9 +429,12 @@ HTML_PAGE = """<!DOCTYPE html>
 
     .stats-bar {
       display: grid;
-      grid-template-columns: repeat(4, 1fr);
+      grid-template-columns: repeat(5, 1fr);
       gap: 12px;
       margin-bottom: 20px;
+    }
+    @media (max-width: 900px) {
+      .stats-bar { grid-template-columns: repeat(2, 1fr); }
     }
     .stat-box {
       background: var(--card);
@@ -442,14 +447,14 @@ HTML_PAGE = """<!DOCTYPE html>
 
     .grid-bottom {
       display: grid;
-      grid-template-columns: 1.5fr 1fr;
+      grid-template-columns: 1.45fr 1fr;
       gap: 20px;
     }
     @media (max-width: 980px) {
       .grid-bottom { grid-template-columns: 1fr; }
     }
     .table-wrap {
-      max-height: 440px;
+      max-height: 420px;
       overflow-y: auto;
       border: 1px solid #1e293b;
       border-radius: 10px;
@@ -478,13 +483,13 @@ HTML_PAGE = """<!DOCTYPE html>
       font-weight: 700;
     }
     .pill.PENDENTE { background: rgba(148,163,184,0.15); color: #cbd5e1; }
-    .pill.ENVIADO { background: rgba(16,185,129,0.2); color: #34d399; }
+    .pill.ENVIADO, .pill.ENTROU_E_ARQUIVOU { background: rgba(16,185,129,0.2); color: #34d399; }
     .pill.ERRO { background: rgba(239,68,68,0.2); color: #f87171; }
     .logs-box {
       background: #070b14;
       border: 1px solid #1e293b;
       border-radius: 10px;
-      height: 440px;
+      height: 420px;
       overflow-y: auto;
       padding: 12px;
       font-family: Consolas, monospace;
@@ -498,12 +503,13 @@ HTML_PAGE = """<!DOCTYPE html>
   <div class="container">
     <header>
       <div>
-        <h1>🐍 Painel Python VPS — Central de Disparos WhatsApp</h1>
+        <h1>🐍 Painel Python VPS — Disparador & Auto-Comunidades</h1>
         <div style="font-size:13px;color:var(--muted);margin-top:4px;">
-          Modo Seguro Ativo: <strong>Nenhum envio ocorre sem você clicar em "Autorizar e Iniciar Disparo"</strong>
+          🤖 <strong>Auto-Entrada + Auto-Arquivamento de Comunidades ATIVO:</strong> qualquer link <code>chat.whatsapp.com</code> recebido (inclusive em mensagens automáticas de saudação) é aceito e arquivado na hora!
         </div>
       </div>
-      <div style="display:flex;align-items:center;gap:10px;">
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+        <span class="badge AUTOJOIN">🤖 CAÇADOR DE COMUNIDADES ATIVO</span>
         <span id="waStatusBadge" class="badge CONNECTING">Verificando...</span>
         <span id="campaignBadge" class="badge DISCONNECTED">DISPARO PARADO</span>
       </div>
@@ -511,7 +517,7 @@ HTML_PAGE = """<!DOCTYPE html>
 
     <div class="stats-bar">
       <div class="stat-box">
-        <div class="label">Total na Lista</div>
+        <div class="label">Total Fornecedores</div>
         <div class="val" id="stTotal">204</div>
       </div>
       <div class="stat-box">
@@ -519,8 +525,12 @@ HTML_PAGE = """<!DOCTYPE html>
         <div class="val" id="stPending" style="color:#fbbf24;">204</div>
       </div>
       <div class="stat-box">
-        <div class="label">Enviados com Sucesso</div>
+        <div class="label">Mensagens Enviadas</div>
         <div class="val" id="stSent" style="color:#34d399;">0</div>
+      </div>
+      <div class="stat-box">
+        <div class="label">Comunidades Entradas & Arquivadas</div>
+        <div class="val" id="stCommunities" style="color:#c084fc;">0</div>
       </div>
       <div class="stat-box">
         <div class="label">Erros / Falhas</div>
@@ -530,7 +540,7 @@ HTML_PAGE = """<!DOCTYPE html>
 
     <div class="grid-top">
       <!-- Card 1: Conexão WhatsApp -->
-      <div class="card">
+      <div class="card" style="margin-bottom:0;">
         <h2>
           <span>1. Conexão do WhatsApp</span>
           <button class="btn-ghost" onclick="logoutWhatsApp()" style="padding:5px 10px;font-size:12px;">Trocar / Desconectar</button>
@@ -542,7 +552,7 @@ HTML_PAGE = """<!DOCTYPE html>
       </div>
 
       <!-- Card 2: Mensagem & Controle Manual -->
-      <div class="card">
+      <div class="card" style="margin-bottom:0;">
         <h2>
           <span>2. Mensagem Exata & Autorização de Disparo</span>
           <span style="font-size:12px;color:var(--muted);font-weight:normal;">Variáveis opcionais: <code>{nome}</code>, <code>{localizacao}</code></span>
@@ -582,6 +592,33 @@ HTML_PAGE = """<!DOCTYPE html>
       </div>
     </div>
 
+    <!-- Card Comunidades Entradas e Arquivadas Automaticamente -->
+    <div class="card">
+      <h2>
+        <span>📦 Comunidades e Grupos Entrados + Arquivados Automaticamente</span>
+        <div style="display:flex;gap:8px;">
+          <input type="text" id="manualInviteLink" placeholder="Colar link chat.whatsapp.com/... para testar entrada + arquivamento" style="width:360px;font-size:12px;" />
+          <button class="btn-ghost" onclick="joinManualCommunity()" style="padding:6px 12px;font-size:12px;">Entrar e Arquivar Agora</button>
+        </div>
+      </h2>
+      <div class="table-wrap" style="max-height:220px;">
+        <table>
+          <thead>
+            <tr>
+              <th>Horário</th>
+              <th>Comunidade / Grupo</th>
+              <th>Enviado por</th>
+              <th>Link Capturado</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody id="commTableBody">
+            <tr><td colspan="5" style="text-align:center;color:#94a3b8;">Aguardando links de comunidades nas respostas ou mensagens de saudação dos fornecedores...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
     <div class="grid-bottom">
       <!-- Lista de Fornecedores -->
       <div class="card">
@@ -614,7 +651,7 @@ HTML_PAGE = """<!DOCTYPE html>
       <!-- Logs em tempo real -->
       <div class="card">
         <h2>
-          <span>4. Logs de Execução em Tempo Real</span>
+          <span>4. Logs de Execução em Tempo Real (Envios + Entrada em Comunidades)</span>
         </h2>
         <div class="logs-box" id="logsContainer"></div>
       </div>
@@ -651,13 +688,32 @@ HTML_PAGE = """<!DOCTYPE html>
         allSuppliers = data.fornecedores || [];
         historyMap = data.historico || {};
 
+        const wa = data.whatsapp || {};
+        const comms = wa.communities || [];
+
         document.getElementById('stTotal').textContent = data.stats.total;
         document.getElementById('stPending').textContent = data.stats.pending;
         document.getElementById('stSent').textContent = data.stats.sent;
+        document.getElementById('stCommunities').textContent = comms.filter(c => c.status === 'ENTROU_E_ARQUIVOU').length;
         document.getElementById('stErrors').textContent = data.stats.errors;
 
+        // Renderizar tabela de comunidades
+        const commBody = document.getElementById('commTableBody');
+        if (comms.length === 0) {
+          commBody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#94a3b8;">Aguardando links de comunidades nas respostas ou mensagens de saudação dos fornecedores...</td></tr>';
+        } else {
+          commBody.innerHTML = comms.slice().reverse().map(c => (
+            '<tr>' +
+              '<td style="color:#94a3b8;font-size:12px;">' + (c.joinedAt || '-') + '</td>' +
+              '<td><strong>' + (c.groupName || 'Comunidade') + '</strong></td>' +
+              '<td>' + (c.senderName || '-') + '</td>' +
+              '<td><code>' + (c.link || c.code) + '</code></td>' +
+              '<td><span class="pill ' + (c.status || 'ENVIADO') + '">' + (c.status === 'ENTROU_E_ARQUIVOU' ? '✅ ENTROU E ARQUIVOU' : c.status) + '</span></td>' +
+            '</tr>'
+          )).join('');
+        }
+
         // Status WA
-        const wa = data.whatsapp || {};
         const waBadge = document.getElementById('waStatusBadge');
         waBadge.className = 'badge ' + (wa.status || 'CONNECTING');
         waBadge.textContent = wa.status === 'CONNECTED'
@@ -667,7 +723,7 @@ HTML_PAGE = """<!DOCTYPE html>
         const qrBox = document.getElementById('qrContainer');
         const connInfo = document.getElementById('connectedInfo');
         if (wa.status === 'CONNECTED') {
-          qrBox.innerHTML = '<div style="font-size:48px;">✅</div><div style="font-weight:700;color:#34d399;margin-top:8px;">Aparelho Conectado!</div><div style="font-size:12px;color:#94a3b8;margin-top:4px;">Pronto. O disparo só iniciará quando você clicar no botão verde ao lado.</div>';
+          qrBox.innerHTML = '<div style="font-size:48px;">✅</div><div style="font-weight:700;color:#34d399;margin-top:8px;">Aparelho Conectado!</div><div style="font-size:12px;color:#94a3b8;margin-top:4px;">Monitor de Comunidades ativo 24h. Clique no botão verde ao lado quando quiser iniciar os envios.</div>';
           connInfo.textContent = wa.user ? ('Conectado como: ' + wa.user.name + ' (' + wa.user.id + ')') : '';
         } else if (wa.status === 'QR_READY' && wa.qrDataUrl) {
           qrBox.innerHTML = '<img src="' + wa.qrDataUrl + '" alt="QR Code WhatsApp" /><div style="font-size:12px;color:#fbbf24;margin-top:8px;">Escaneie no WhatsApp > Aparelhos conectados</div>';
@@ -806,6 +862,23 @@ HTML_PAGE = """<!DOCTYPE html>
       await loadState();
     }
 
+    async function joinManualCommunity() {
+      const link = document.getElementById('manualInviteLink').value.trim();
+      if (!link) return alert('Cole um link chat.whatsapp.com/...');
+      const res = await fetch('/api/join-community', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ linkOrCode: link })
+      });
+      const d = await res.json();
+      if (d.ok) {
+        document.getElementById('manualInviteLink').value = '';
+      } else {
+        alert('Erro: ' + (d.error || 'Falha ao entrar na comunidade'));
+      }
+      await loadState();
+    }
+
     setInterval(loadState, 2000);
     loadState();
   </script>
@@ -851,7 +924,7 @@ class PanelHandler(BaseHTTPRequestHandler):
             try:
                 wa = bridge_get("/api/status")
             except Exception:
-                wa = {"status": "CONNECTING", "logs": []}
+                wa = {"status": "CONNECTING", "logs": [], "communities": []}
 
             sent = sum(1 for f in fornecedores if historico.get(str(f.get("telefone", "")).strip(), {}).get("status") == "ENVIADO")
             errors = sum(1 for f in fornecedores if historico.get(str(f.get("telefone", "")).strip(), {}).get("status") == "ERRO")
@@ -865,7 +938,7 @@ class PanelHandler(BaseHTTPRequestHandler):
                     "sent_session": campaign_state["sent_session"],
                     "errors_session": campaign_state["errors_session"],
                 }
-                combined_logs = list(campaign_state["logs"][:60]) + list(wa.get("logs", [])[:30])
+                combined_logs = list(wa.get("logs", [])[:40]) + list(campaign_state["logs"][:40])
 
             self._send_json({
                 "config": cfg,
@@ -970,6 +1043,16 @@ class PanelHandler(BaseHTTPRequestHandler):
                     self._send_json({"ok": True})
                 else:
                     self._send_json({"ok": False, "error": resp.get("error")})
+            except Exception as e:
+                self._send_json({"ok": False, "error": str(e)})
+            return
+
+        if parsed.path == "/api/join-community":
+            body = self._read_body_json()
+            link_or_code = str(body.get("linkOrCode", "")).strip()
+            try:
+                resp = bridge_post("/api/join-community", {"linkOrCode": link_or_code})
+                self._send_json(resp)
             except Exception as e:
                 self._send_json({"ok": False, "error": str(e)})
             return
