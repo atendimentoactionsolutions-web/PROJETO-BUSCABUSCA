@@ -382,8 +382,8 @@ async function deepScanAllArchivedAndCommunities() {
   if (!waSocket || connectionStatus !== 'CONNECTED') return { ok: false, error: 'WhatsApp não conectado' };
   addLog('[BUSCA] Iniciando VISTORIA COMPLETA nos Contatos Arquivados, Comunidades e Grupos...');
 
-  // 1. Sincronizar metadados de todos os grupos/comunidades participantes
-  await syncAndArchiveAllParticipatingGroups();
+  // 1. Sair imediatamente de grupos indesejados de desapego, feira do rolo e vendas
+  await leaveUnwantedGroups();
 
   // 2. Forçar re-leitura dos snapshots de App State (regular_low = arquivados + messageRange, regular_high = lidos + messageRange, critical_unblock_low = contatos)
   try {
@@ -416,45 +416,47 @@ async function deepScanAllArchivedAndCommunities() {
   };
 }
 
-// Sincroniza e arquiva todos os grupos e comunidades em que a conta participa
-async function syncAndArchiveAllParticipatingGroups() {
+// Sair imediatamente de grupos de desapego, feira do rolo, compras e vendas e outros grupos indesejados
+async function leaveUnwantedGroups() {
   if (!waSocket || connectionStatus !== 'CONNECTED') return 0;
   try {
     const groupsObj = await waSocket.groupFetchAllParticipating();
     const groups = Object.values(groupsObj || {});
-    let count = 0;
+    const blacklistWords = [
+      'desapeg', 'feira do rolo', 'compra e venda', 'compras e vendas', 'vendas',
+      'universo feminino', 'miga', 'bazar', 'doacao', 'brecho', 'brechó', 'doação',
+      'troca', 'usado', 'grajaú', 'osasco', 'capão', 'pirituba', 'notícias', 'noticias',
+      'rataiada', 'postou', 'pedreira', 'carapicuíba', 'biritiba', 'mogi', 'paraisópolis',
+      'm\' boi', 'ifindz', 'afiliado', 'renda extra', 'cassino', 'tigre', 'aposta', 'bet',
+      'desapego'
+    ];
+
+    let leftCount = 0;
     for (const g of groups) {
       if (!g || !g.id) continue;
-      groupMetaCache.set(g.id, g);
-      if (g.subject) groupSubjectCache.set(g.id, g.subject);
-
-      // Bloquear grupos não autorizados (desapego, feira do rolo, ifindz, etc.)
-      if (!isSafeGroupName(g.subject, g.id)) continue;
-
-      // Monitorar apenas grupos de fornecedores identificados
-      const isSupplierGroup = isKnownSupplierJid(g.owner) || isKnownSupplierJid(g.id) || joinedCommunitiesMap.has(g.id);
-      if (!isSupplierGroup) continue;
-
-      const isComm = !!(g.isCommunity || g.isCommunityAnnounce || g.linkedParent);
-      if (!joinedCommunitiesMap.has(g.id)) {
-        joinedCommunitiesMap.set(g.id, {
-          code: g.id,
-          link: isComm ? 'Comunidade Oficial' : 'Grupo Oficial',
-          groupJid: g.id,
-          linkedParent: g.linkedParent || '',
-          groupName: g.subject || 'Grupo Fornecedor',
-          senderJid: g.owner || 'Fornecedor',
-          senderName: isComm ? 'Comunidade' : 'Grupo',
-          status: 'MONITORANDO',
-          joinedAt: new Date().toLocaleString('pt-BR')
-        });
+      const s = (g.subject || '').toLowerCase();
+      const shouldLeave = blacklistWords.some(w => s.includes(w));
+      if (shouldLeave) {
+        addLog(`[SAINDO] Saindo automaticamente do grupo indesejado: "${g.subject}" (${g.id})...`);
+        try {
+          await waSocket.groupLeave(g.id);
+          addLog(`[SAIU] Saiu com sucesso de "${g.subject}".`);
+          leftCount++;
+        } catch (leaveErr) {
+          addLog(`[AVISO] Erro ao sair de "${g.subject}": ${leaveErr.message}`);
+        }
+        joinedCommunitiesMap.delete(g.id);
+        monitoredArchivedMap.delete(g.id);
       }
-      count++;
     }
-    saveJoinedCommunities();
-    saveMonitoredArchived();
-    return count;
-  } catch {
+    if (leftCount > 0) {
+      saveJoinedCommunities();
+      saveMonitoredArchived();
+      addLog(`[LIMPEZA DE GRUPOS] Saiu de ${leftCount} grupos indesejados.`);
+    }
+    return leftCount;
+  } catch (err) {
+    addLog(`Erro ao verificar grupos: ${err.message}`);
     return 0;
   }
 }
@@ -804,43 +806,10 @@ async function inspectIncomingMessage(msg) {
     await archiveChatJid(remoteJid, '', '', '', false);
   }
 
-  // 1. Extrair e entrar em links de comunidades/grupos SOMENTE se enviados por um dos 204 fornecedores autorizados
-  if (isKnownSupplierJid(remoteJid)) {
-    const codes = extractInviteCodesFromMessage(msg.message);
-    for (const code of codes) {
-      await processInviteCode(code, remoteJid, pushName);
-    }
-  }
+  // Bloqueio rigoroso de entrada automática em grupos: NUNCA aceitar convites ou entrar em grupos
+  // O sistema captura apenas listas enviadas diretamente pelos 204 fornecedores ou em grupos que o usuário já estiver participante
 
-  // 2. Convites nativos V4 SOMENTE se enviados por um dos 204 fornecedores autorizados
-  const nativeInvite = findNativeGroupInvite(msg.message);
-  if (nativeInvite && nativeInvite.inviteCode && isKnownSupplierJid(remoteJid)) {
-    try {
-      addLog(`[CONVITE] Convite nativo de Grupo/Comunidade recebido de ${pushName || remoteJid}! Aceitando...`);
-      const gJid = await waSocket.groupAcceptInviteV4(msg.key, nativeInvite);
-      const targetJid = gJid || nativeInvite.groupJid;
-      if (targetJid) {
-        await archiveChatJid(targetJid, '[Convite Nativo V4]', nativeInvite.groupName || 'Grupo Convidado', 'Comunidade / Grupo', true);
-        setTimeout(() => archiveChatJid(targetJid, '[Confirmação V4]', '', '', true), 3000);
-      }
-      await archiveChatJid(remoteJid, '[Fornecedor Convite V4]', pushName, 'Contato Arquivado', false);
-      joinedCommunitiesMap.set(nativeInvite.inviteCode, {
-        code: nativeInvite.inviteCode,
-        link: `Convite Nativo (${nativeInvite.groupName || targetJid})`,
-        groupJid: targetJid || '',
-        groupName: nativeInvite.groupName || 'Grupo Convidado',
-        senderJid: remoteJid,
-        senderName: pushName || remoteJid.split('@')[0],
-        status: 'ENTROU_E_ARQUIVOU',
-        joinedAt: new Date().toLocaleString('pt-BR')
-      });
-      saveJoinedCommunities();
-    } catch {
-      await processInviteCode(nativeInvite.inviteCode, remoteJid, pushName);
-    }
-  }
-
-  // 3. Enviar texto da mensagem para o Buscador Inteligente de Preços
+  // Enviar texto da mensagem para o Buscador Inteligente de Preços
   if (!msg.key?.fromMe) {
     await forwardMessageToProductParser(msg);
   }
