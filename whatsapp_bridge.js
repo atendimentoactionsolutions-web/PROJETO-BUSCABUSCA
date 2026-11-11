@@ -15,9 +15,12 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
-app.use(express.json());
+app.use(express.json({ limit: '10mb' }));
 
 const PORT = Number(process.env.BRIDGE_PORT || 3051);
+const PANEL_PORT = Number(process.env.PORT || 3050);
+const PANEL_INGEST_URL = `http://127.0.0.1:${PANEL_PORT}/api/internal/ingest-message`;
+
 const authFolder = path.join(__dirname, 'auth_session');
 const qrFileLocal = path.join(__dirname, 'qr_whatsapp.png');
 const communitiesFile = path.join(__dirname, 'comunidades_entradas.json');
@@ -28,20 +31,17 @@ let currentQRDataUrl = null;
 let connectedUser = null;
 let recentLogs = [];
 
-// Mapa de grupos/comunidades entrados: code ou groupJid -> dados
 const joinedCommunitiesMap = new Map();
-// Conjunto de JIDs de grupos que devem permanecer sempre arquivados
 const autoArchiveGroupJids = new Set();
-// Última mensagem real recebida de cada grupo para o chatModify archive
 const groupLastMsgMap = new Map();
-// Fila para processar códigos sem concorrência excessiva
+const groupSubjectCache = new Map();
 const pendingInviteCodes = new Set();
 
 function addLog(msg) {
   const line = `[${new Date().toLocaleTimeString('pt-BR')}] ${msg}`;
   console.log(line);
   recentLogs.unshift(line);
-  if (recentLogs.length > 200) recentLogs.pop();
+  if (recentLogs.length > 250) recentLogs.pop();
 }
 
 function loadJoinedCommunities() {
@@ -51,7 +51,10 @@ function loadJoinedCommunities() {
       if (Array.isArray(arr)) {
         for (const item of arr) {
           if (item.code) joinedCommunitiesMap.set(item.code, item);
-          if (item.groupJid) autoArchiveGroupJids.add(item.groupJid);
+          if (item.groupJid) {
+            autoArchiveGroupJids.add(item.groupJid);
+            if (item.groupName) groupSubjectCache.set(item.groupJid, item.groupName);
+          }
           if (item.linkedParent) autoArchiveGroupJids.add(item.linkedParent);
         }
       }
@@ -72,7 +75,6 @@ function saveJoinedCommunities() {
 
 loadJoinedCommunities();
 
-// Arquiva um grupo/comunidade de forma infalível
 async function archiveGroupJid(groupJid, reason = '') {
   if (!waSocket || !groupJid) return false;
   autoArchiveGroupJids.add(groupJid);
@@ -80,7 +82,6 @@ async function archiveGroupJid(groupJid, reason = '') {
   const nowSec = Math.floor(Date.now() / 1000);
   const lastMsg = groupLastMsgMap.get(groupJid);
 
-  // Tentativa 1: Usando a última mensagem real se disponível
   if (lastMsg && lastMsg.key && lastMsg.key.id) {
     try {
       const safeMsg = {
@@ -98,7 +99,6 @@ async function archiveGroupJid(groupJid, reason = '') {
     } catch {}
   }
 
-  // Tentativa 2: Usando objeto messageRange direto (suportado pelo chatModificationToAppPatch do Baileys)
   try {
     await waSocket.chatModify(
       {
@@ -122,12 +122,10 @@ async function archiveGroupJid(groupJid, reason = '') {
     addLog(`📦 Comunidade/Grupo arquivado automaticamente (${groupJid}) ${reason}`);
     return true;
   } catch (err) {
-    addLog(`⚠️ Aviso ao arquivar ${groupJid} (será re-arquivado no próximo evento): ${err.message}`);
     return false;
   }
 }
 
-// Extrai todos os códigos de convite chat.whatsapp.com de qualquer estrutura de mensagem (incluindo saudações automáticas, botões, templates, legendas)
 function extractInviteCodesFromMessage(msgObj) {
   const codes = new Set();
   if (!msgObj) return [];
@@ -146,7 +144,6 @@ function extractInviteCodesFromMessage(msgObj) {
   return Array.from(codes);
 }
 
-// Busca recursivamente se há groupInviteMessage nativo dentro da mensagem
 function findNativeGroupInvite(obj) {
   if (!obj || typeof obj !== 'object') return null;
   if (obj.groupInviteMessage && obj.groupInviteMessage.inviteCode) {
@@ -157,6 +154,78 @@ function findNativeGroupInvite(obj) {
     if (found) return found;
   }
   return null;
+}
+
+// Extrai o texto completo de qualquer tipo de mensagem (conversa, texto estendido, legenda de imagem/vídeo/documento, mensagem efêmera)
+function extractPlainTextFromMessage(m) {
+  if (!m || typeof m !== 'object') return '';
+  if (m.ephemeralMessage?.message) return extractPlainTextFromMessage(m.ephemeralMessage.message);
+  if (m.viewOnceMessage?.message) return extractPlainTextFromMessage(m.viewOnceMessage.message);
+  if (m.viewOnceMessageV2?.message) return extractPlainTextFromMessage(m.viewOnceMessageV2.message);
+  if (m.documentWithCaptionMessage?.message) return extractPlainTextFromMessage(m.documentWithCaptionMessage.message);
+
+  return (
+    m.conversation ||
+    m.extendedTextMessage?.text ||
+    m.imageMessage?.caption ||
+    m.videoMessage?.caption ||
+    m.documentMessage?.caption ||
+    m.buttonsMessage?.contentText ||
+    m.templateMessage?.hydratedTemplate?.hydratedContentText ||
+    ''
+  );
+}
+
+async function getGroupSubject(groupJid) {
+  if (!groupJid || !groupJid.endsWith('@g.us')) return '';
+  if (groupSubjectCache.has(groupJid)) return groupSubjectCache.get(groupJid);
+  if (!waSocket) return '';
+  try {
+    const meta = await waSocket.groupMetadata(groupJid);
+    if (meta && meta.subject) {
+      groupSubjectCache.set(groupJid, meta.subject);
+      return meta.subject;
+    }
+  } catch {}
+  return '';
+}
+
+async function forwardMessageToProductParser(msg) {
+  try {
+    if (!msg || !msg.message) return;
+    const text = extractPlainTextFromMessage(msg.message);
+    if (!text || text.trim().length < 8) return;
+
+    const remoteJid = msg.key?.remoteJid || '';
+    if (remoteJid === 'status@broadcast') return;
+
+    const isGroup = remoteJid.endsWith('@g.us');
+    const participantJid = isGroup ? (msg.key?.participant || '') : remoteJid;
+    const pushName = msg.pushName || '';
+    const groupName = isGroup ? await getGroupSubject(remoteJid) : '';
+
+    const payload = {
+      text,
+      remoteJid,
+      participantJid,
+      pushName,
+      groupName,
+      isGroup,
+      timestamp: Number(msg.messageTimestamp || Math.floor(Date.now() / 1000))
+    };
+
+    const res = await fetch(PANEL_INGEST_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (data && data.parsedCount > 0) {
+        addLog(`🏷️ Buscador: ${data.parsedCount} produtos capturados de "${data.supplierName}" (${groupName || pushName || remoteJid})`);
+      }
+    }
+  } catch {}
 }
 
 async function processInviteCode(code, senderJid = 'Desconhecido', senderName = '') {
@@ -180,7 +249,6 @@ async function processInviteCode(code, senderJid = 'Desconhecido', senderName = 
     let groupJid = null;
     let linkedParent = null;
 
-    // 1. Inspecionar metadados do convite antes de entrar
     try {
       const info = await waSocket.groupGetInviteInfo(code);
       if (info) {
@@ -189,11 +257,8 @@ async function processInviteCode(code, senderJid = 'Desconhecido', senderName = 
         linkedParent = info.linkedParent || null;
         addLog(`ℹ️ Identificado: "${groupName}" (${groupJid || 'JID pendente'})`);
       }
-    } catch (infoErr) {
-      addLog(`ℹ️ Prosseguindo com entrada direta para o código ${code}...`);
-    }
+    } catch {}
 
-    // 2. Aceitar convite e entrar automaticamente na comunidade/grupo
     for (let attempt = 1; attempt <= 3; attempt++) {
       try {
         const joinedJid = await waSocket.groupAcceptInvite(code);
@@ -202,7 +267,6 @@ async function processInviteCode(code, senderJid = 'Desconhecido', senderName = 
         break;
       } catch (joinErr) {
         const msg = String(joinErr?.message || '');
-        // Se já estiver no grupo (conflict / already participant), continuamos para arquivar
         if (msg.includes('conflict') || msg.includes('already') || msg.includes('409')) {
           addLog(`ℹ️ Já era participante de "${groupName}" (${groupJid}). Garantindo arquivamento...`);
           break;
@@ -216,21 +280,19 @@ async function processInviteCode(code, senderJid = 'Desconhecido', senderName = 
       }
     }
 
-    // 3. Consultar metadados do grupo após entrar para descobrir comunidade-mãe (linkedParent)
     if (groupJid) {
       try {
         const meta = await waSocket.groupMetadata(groupJid);
         if (meta) {
           groupName = meta.subject || groupName;
+          groupSubjectCache.set(groupJid, groupName);
           if (meta.linkedParent) linkedParent = meta.linkedParent;
         }
       } catch {}
     }
 
-    // 4. Arquivar imediatamente o grupo e a comunidade-mãe (se houver)
     if (groupJid) {
       await archiveGroupJid(groupJid, `["${groupName}"]`);
-      // Re-arquivar após 3 segundos e 8 segundos para garantir que mensagens de boas-vindas do grupo não o desarquivem
       setTimeout(() => archiveGroupJid(groupJid, `[confirmação 3s "${groupName}"]`), 3000);
       setTimeout(() => archiveGroupJid(groupJid, `[confirmação 8s "${groupName}"]`), 8000);
     }
@@ -275,26 +337,25 @@ async function processInviteCode(code, senderJid = 'Desconhecido', senderName = 
   }
 }
 
-async function inspectIncomingMessageForInvites(msg) {
+async function inspectIncomingMessage(msg) {
   if (!msg || !msg.message) return;
   const remoteJid = msg.key?.remoteJid || '';
   const pushName = msg.pushName || '';
 
-  // Se for mensagem dentro de um grupo que nós entramos e marcamos para auto-arquivar, atualizar última msg e manter arquivado
   if (remoteJid.endsWith('@g.us')) {
     groupLastMsgMap.set(remoteJid, msg);
     if (autoArchiveGroupJids.has(remoteJid)) {
-      await archiveGroupJid(remoteJid, '(mantendo arquivado após nova mensagem)');
+      await archiveGroupJid(remoteJid, '(mantendo arquivado)');
     }
   }
 
-  // 1. Extrair todos os links chat.whatsapp.com/XXXX (inclusive em mensagens de saudação, legendas, botões, etc.)
+  // 1. Extrair e entrar em links de comunidades/grupos (inclusive em saudações automáticas)
   const codes = extractInviteCodesFromMessage(msg.message);
   for (const code of codes) {
     await processInviteCode(code, remoteJid, pushName);
   }
 
-  // 2. Verificar convite nativo (groupInviteMessage V4)
+  // 2. Verificar convites nativos V4
   const nativeInvite = findNativeGroupInvite(msg.message);
   if (nativeInvite && nativeInvite.inviteCode) {
     try {
@@ -316,10 +377,14 @@ async function inspectIncomingMessageForInvites(msg) {
         joinedAt: new Date().toLocaleString('pt-BR')
       });
       saveJoinedCommunities();
-    } catch (v4Err) {
-      // Fallback para groupAcceptInvite padrão
+    } catch {
       await processInviteCode(nativeInvite.inviteCode, remoteJid, pushName);
     }
+  }
+
+  // 3. Enviar texto da mensagem para o Buscador Inteligente de Preços (se for mensagem de grupo ou de fornecedor)
+  if (!msg.key?.fromMe) {
+    await forwardMessageToProductParser(msg);
   }
 }
 
@@ -338,7 +403,7 @@ async function startWhatsApp() {
       version,
       auth: state,
       printQRInTerminal: false,
-      browser: ['Painel Python VPS', 'Chrome', '1.0.0'],
+      browser: ['Buscador PXT & Painel VPS', 'Chrome', '1.0.0'],
       syncFullHistory: false
     });
 
@@ -367,7 +432,7 @@ async function startWhatsApp() {
           id: waSocket.user?.id || '',
           name: waSocket.user?.name || waSocket.user?.notify || 'Conectado'
         };
-        addLog(`WhatsApp conectado: ${connectedUser.name} (${connectedUser.id}). Monitor de Comunidades 100% ATIVO!`);
+        addLog(`WhatsApp conectado: ${connectedUser.name} (${connectedUser.id}). Monitor de Comunidades & Listas de Preços 100% ATIVO!`);
       }
 
       if (connection === 'close') {
@@ -386,19 +451,18 @@ async function startWhatsApp() {
       }
     });
 
-    // Escutar TODAS as mensagens recebidas (inclusive saudações automáticas instantâneas e histórico recente)
     waSocket.ev.on('messages.upsert', async ({ messages }) => {
       if (!Array.isArray(messages)) return;
       for (const msg of messages) {
-        await inspectIncomingMessageForInvites(msg);
+        await inspectIncomingMessage(msg);
       }
     });
 
-    // Caso algum grupo novo seja adicionado via evento groups.upsert logo após aceitar convite
     waSocket.ev.on('groups.upsert', async (groups) => {
       if (!Array.isArray(groups)) return;
       for (const g of groups) {
         if (g.id) {
+          if (g.subject) groupSubjectCache.set(g.id, g.subject);
           addLog(`📥 Novo grupo/comunidade sincronizado: "${g.subject || g.id}". Arquivando automaticamente...`);
           await archiveGroupJid(g.id, `["${g.subject || g.id}"]`);
           if (g.linkedParent) {
@@ -442,7 +506,7 @@ app.get('/api/status', (req, res) => {
     user: connectedUser,
     hasQr: !!currentQRDataUrl,
     qrDataUrl: currentQRDataUrl,
-    logs: recentLogs.slice(0, 50),
+    logs: recentLogs.slice(0, 60),
     communities: Array.from(joinedCommunitiesMap.values())
   });
 });
@@ -497,6 +561,6 @@ app.post('/api/logout', async (req, res) => {
 });
 
 app.listen(PORT, '127.0.0.1', () => {
-  addLog(`Motor interno WhatsApp + Auto-Join de Comunidades rodando em 127.0.0.1:${PORT}`);
+  addLog(`Motor interno WhatsApp + Auto-Comunidades + Captura de Listas rodando em 127.0.0.1:${PORT}`);
   startWhatsApp();
 });
