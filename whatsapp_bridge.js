@@ -38,7 +38,7 @@ try {
 
 const baileysModule = await import('@whiskeysockets/baileys');
 const makeWASocket = baileysModule.makeWASocket || baileysModule.default;
-const { useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion, downloadMediaMessage } = baileysModule;
+const { useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion, downloadMediaMessage, Browsers } = baileysModule;
 
 const app = express();
 app.use(express.json({ limit: '10mb' }));
@@ -826,11 +826,17 @@ async function startWhatsApp() {
       if (v && v.version) version = v.version;
     } catch {}
 
+    const browserConfig = Browsers?.macOS ? Browsers.macOS('Desktop') : ['Buscador PXT', 'Chrome', '1.0.0'];
+
     waSocket = makeWASocket({
       version,
       auth: state,
       printQRInTerminal: false,
-      browser: ['Buscador PXT & Painel VPS', 'Chrome', '1.0.0'],
+      browser: browserConfig,
+      keepAliveIntervalMs: 25000,
+      connectTimeoutMs: 60000,
+      defaultQueryTimeoutMs: 60000,
+      retryRequestDelayMs: 2500,
       syncFullHistory: true,
       shouldSyncHistoryMessage: () => true
     });
@@ -978,17 +984,26 @@ async function startWhatsApp() {
 
       if (connection === 'close') {
         const statusCode = lastDisconnect?.error?.output?.statusCode;
+        const errorMsg = lastDisconnect?.error?.message || 'Motivo desconhecido';
         const loggedOut = statusCode === DisconnectReason.loggedOut;
-        addLog(`Conexão fechada (código ${statusCode}).`);
+
+        addLog(`Conexão fechada (código ${statusCode || 'desconhecido'}: ${errorMsg}).`);
         connectionStatus = 'DISCONNECTED';
         currentQRDataUrl = null;
         connectedUser = null;
+
         if (loggedOut) {
+          addLog('Sessão desconectada permanentemente pelo dispositivo. Limpando credenciais antigas para novo QR Code...');
           try {
             fs.rmSync(authFolder, { recursive: true, force: true });
           } catch {}
+          setTimeout(startWhatsApp, 3000);
+        } else {
+          // Desconexão transitória (queda de rede, restart, timeout): reconectar automaticamente preservando a sessão
+          const delay = (statusCode === DisconnectReason.restartRequired) ? 1500 : 5000;
+          addLog(`Reconexão automática programada em ${(delay / 1000).toFixed(0)}s mantendo credenciais salvas...`);
+          setTimeout(startWhatsApp, delay);
         }
-        setTimeout(startWhatsApp, 3000);
       }
     });
 
