@@ -47,19 +47,37 @@ class ColorGuardianTests(unittest.TestCase):
         self.assertIn("COR_INEXISTENTE_NO_MODELO", reason_bad)
 
     def test_watch_s12_and_se3_enforce_official_colors_only(self):
-        # S12 não tem ROSA nem PRATA; tem Dark Bronze, Light Gold, Black, Space Gray, Natural Titanium, Pearl White, Night Blue
-        for valid_c in ("PRETO", "CINZA ESPACIAL", "BRONZE", "DOURADO", "NATURAL TITÂNIO", "BRANCO", "AZUL"):
+        # S12 GPS (Alumínio): SOMENTE as 4 cores oficiais (Black, Space Gray, Dark Bronze, Light Gold)
+        for valid_c in ("PRETO", "CINZA ESPACIAL", "BRONZE", "DOURADO"):
             ok, reason, _ = validate_product(
                 {"modelo": "APPLE WATCH S12 46MM GPS", "capacidade": "46MM", "cor": valid_c, "preco": 3100, "condicao": "Novo / Lacrado"},
                 allow_seminovo=True, log_anomalies=False,
             )
-            self.assertTrue(ok, f"S12 deveria aceitar {valid_c}: {reason}")
-        for bad_c in ("ROSA", "PRATA", "BURGUNDY", "VERMELHO"):
+            self.assertTrue(ok, f"S12 GPS deveria aceitar {valid_c}: {reason}")
+        for bad_c in ("BRANCO", "AZUL", "NATURAL TITÂNIO", "ROSA", "PRATA", "BURGUNDY", "VERMELHO"):
             ok, _, _ = validate_product(
-                {"modelo": "APPLE WATCH S12 46MM GPS", "capacidade": "46MM", "cor": bad_c, "preco": 3100, "condicao": "Novo / Lacrado"},
+                {"modelo": "APPLE WATCH S12 42MM GPS", "capacidade": "42MM", "cor": bad_c, "preco": 2700, "condicao": "Novo / Lacrado"},
                 allow_seminovo=True, log_anomalies=False,
             )
-            self.assertFalse(ok, f"S12 não deve aceitar {bad_c}")
+            self.assertFalse(ok, f"S12 GPS não deve aceitar {bad_c}")
+
+        # Caso real KING SHOP: "WHITE GOLD $ 2.690,00" -> auto-corrigido de BRANCO para DOURADO
+        self.assertEqual(extract_color("WHITE GOLD $ 2.690,00"), "DOURADO")
+        ok_wg, reason_wg, healed_wg = validate_product(
+            {"modelo": "APPLE WATCH S12 42MM GPS", "capacidade": "42MM", "cor": "BRANCO", "preco": 2690,
+             "condicao": "Novo / Lacrado", "linhaOriginal": "APPLE WATCH S12 42MM GPS - (BRANCO) - WHITE GOLD $ 2.690,00"},
+            allow_seminovo=True, log_anomalies=False,
+        )
+        self.assertTrue(ok_wg, reason_wg)
+        self.assertEqual(healed_wg["cor"], "DOURADO")
+
+        # S12 GPS + Cellular aceita Titânio/Cerâmica além do Alumínio
+        for valid_cell in ("NATURAL TITÂNIO", "BRANCO", "AZUL"):
+            ok, reason, _ = validate_product(
+                {"modelo": "APPLE WATCH S12 46MM GPS + CELLULAR", "capacidade": "46MM", "cor": valid_cell, "preco": 5500, "condicao": "Novo / Lacrado"},
+                allow_seminovo=True, log_anomalies=False,
+            )
+            self.assertTrue(ok, f"S12 Cellular deveria aceitar {valid_cell}: {reason}")
 
         # SE 3 só tem Meia-Noite e Estelar (sem Prata!)
         ok_se3_bad, _, _ = validate_product(

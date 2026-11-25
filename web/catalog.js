@@ -242,11 +242,14 @@ export function colorKey(value, modelName = '', rawLine = '') {
       if (['jet black', 'preto', 'black', 'midnight', 'meia-noite', 'space black', 'preto espacial'].includes(base)) c = 'jet black';
       else if (['space gray', 'gray', 'cinza espacial'].includes(base)) c = 'space gray';
       else if (['dark bronze', 'bronze'].includes(base)) c = 'bronze';
-      else if (['light gold', 'radiant gold', 'gold', 'dourado'].includes(base)) c = 'dourado';
+      else if (['light gold', 'white gold', 'radiant gold', 'gold', 'dourado'].includes(base)) c = 'dourado';
       else if (/^natural/.test(base) || ['natural titanium', 'titanio natural'].includes(base)) c = 'natural titanium';
       else if (['pearl white', 'branco', 'white'].includes(base)) c = 'branco';
       else if (['night blue', 'azul', 'blue'].includes(base)) c = 'azul';
-      return pickAllowed(c, ['jet black', 'space gray', 'bronze', 'dourado', 'natural titanium', 'branco', 'azul']);
+      const allowedS12 = /\bcellular\b/.test(m)
+        ? ['jet black', 'space gray', 'bronze', 'dourado', 'natural titanium', 'branco', 'azul']
+        : ['jet black', 'space gray', 'bronze', 'dourado'];
+      return pickAllowed(c, allowedS12);
     }
     if (/\b(?:s|series?\s*)11\b/.test(m)) {
       const finishes = {'rosa':'rose gold','rosa gold':'rose gold','ouro rosa':'rose gold','preto':'jet black',

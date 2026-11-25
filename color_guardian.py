@@ -61,6 +61,7 @@ CANONICAL_COLOR_MAP = {
     "gold": "DOURADO",
     "dourado": "DOURADO",
     "light gold": "DOURADO",
+    "white gold": "DOURADO",
     "radiant gold": "DOURADO",
     "pink": "ROSA",
     "rosa": "ROSA",
@@ -271,10 +272,14 @@ OFFICIAL_MODEL_COLOR_RULES = [
     (re.compile(r"\bAPPLE\s+WATCH\s+ULTRA\b", re.I),
      {"prata": "NATURAL TITÂNIO", "natural": "NATURAL TITÂNIO", "preto titânio": "PRETO", "preto titanio": "PRETO"},
      {"NATURAL TITÂNIO", "PRETO"}),
-    # Series 12: Alumínio (Dark Bronze, Light Gold, Black, Space Gray), Titânio (Natural, Radiant Gold), Cerâmica (Pearl White, Night Blue)
-    (re.compile(r"\bAPPLE\s+WATCH\s+S12\b", re.I),
+    # Series 12 Cellular: Alumínio + Titânio (Natural, Radiant Gold) + Cerâmica (Pearl White, Night Blue)
+    (re.compile(r"\bAPPLE\s+WATCH\s+S12\b.*\bCELLULAR\b", re.I),
      {"meia-noite": "PRETO", "preto espacial": "PRETO", "preto brilhante": "PRETO"},
      {"PRETO", "CINZA ESPACIAL", "BRONZE", "DOURADO", "NATURAL TITÂNIO", "BRANCO", "AZUL"}),
+    # Series 12 GPS: SOMENTE os 4 acabamentos oficiais de Alumínio (Dark Bronze, Light Gold, Black, Space Gray)
+    (re.compile(r"\bAPPLE\s+WATCH\s+S12\b", re.I),
+     {"meia-noite": "PRETO", "preto espacial": "PRETO", "preto brilhante": "PRETO"},
+     {"PRETO", "CINZA ESPACIAL", "BRONZE", "DOURADO"}),
     (re.compile(r"\bAPPLE\s+WATCH\s+S11\b.*\bCELLULAR\b", re.I),
      {}, {"PRETO", "CINZA ESPACIAL", "PRATA", "ROSA", "DOURADO", "NATURAL TITÂNIO", "ARDÓSIA"}),
     (re.compile(r"\bAPPLE\s+WATCH\s+S11\b", re.I),
