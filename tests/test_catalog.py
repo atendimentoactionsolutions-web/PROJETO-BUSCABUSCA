@@ -16,6 +16,8 @@ class CatalogTests(unittest.TestCase):
         self.patch.start()
         self.archive_patch = patch.object(painel, "CATALOG_ARCHIVE_DIR", os.path.join(self.folder.name, "archive"))
         self.archive_patch.start()
+        painel._guardian_quarantine["date"] = ""
+        painel._guardian_quarantine["sigs"] = set()
 
     def tearDown(self):
         self.patch.stop()
@@ -142,6 +144,18 @@ class CatalogTests(unittest.TestCase):
         self.assertEqual(ip15_rosa['condicao'], 'Seminovo')
         ip12_pro = next(p for p in healed if p['modelo'] == 'IPHONE 12 PRO')
         self.assertEqual(ip12_pro['condicao'], 'Seminovo')
+
+        # Releitura (daily_review) NÃO pode reinserir exatamente a mesma oferta removida pela Vistoria 5min (fim do vai-e-volta 34->33)
+        with patch.object(painel, 'BASE_DIR', self.folder.name):
+            reinsert_same = painel.upsert_parsed_products([
+                dict(modelo='IPHONE 17 PRO', categoria='iPhones', capacidade='512GB', cor='LARANJA', preco=6500, condicao='Novo / Lacrado', fornecedor='G3', data=today, hora='10:00:00'),
+            ])
+            self.assertEqual(reinsert_same, 0)
+            # Mas se o fornecedor mandar um preço NOVO corrigido (R$ 8600), entra normalmente!
+            reinsert_fixed = painel.upsert_parsed_products([
+                dict(modelo='IPHONE 17 PRO', categoria='iPhones', capacidade='512GB', cor='LARANJA', preco=8600, condicao='Novo / Lacrado', fornecedor='G3', data=today, hora='10:05:00'),
+            ])
+            self.assertEqual(reinsert_fixed, 1)
 
     def test_api_v1_feed_applies_dfu_rules_and_includes_suppliers(self):
         today = painel.get_today_str()

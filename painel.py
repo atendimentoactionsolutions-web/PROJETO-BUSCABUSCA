@@ -479,6 +479,8 @@ def upsert_parsed_products(new_items):
                 continue
 
             item = sanitized_item
+            if is_guardian_quarantined(item):
+                continue
             k = offer_key(item)
             if apple_reference.model_status(item["modelo"]) is False:
                 if pending is None:
@@ -2599,6 +2601,68 @@ def build_api_v1_suppliers():
 
 GUARDIAN_SWEEP_INTERVAL_SECONDS = 300
 last_guardian_sweep = {"checked": None, "analyzed": 0, "validAfter": 0, "removed": 0, "reclassified": 0, "deduplicated": 0, "actions": []}
+_guardian_quarantine = {"date": "", "sigs": set()}
+
+
+def _guardian_offer_sig(item):
+    try:
+        price_val = int(round(float(item.get("preco", 0))))
+    except (TypeError, ValueError):
+        price_val = 0
+    return "|".join([
+        str(item.get("data", "")).strip(),
+        str(item.get("fornecedor", "")).strip().upper(),
+        str(item.get("modelo", "")).strip().upper(),
+        str(item.get("capacidade", "-")).strip().upper(),
+        str(item.get("cor", "-")).strip().upper(),
+        str(price_val),
+    ])
+
+
+def _load_guardian_quarantine():
+    hoje = get_today_str()
+    if _guardian_quarantine["date"] == hoje:
+        return _guardian_quarantine["sigs"]
+    qfile = os.path.join(BASE_DIR, "quarentena_guardiao.json")
+    sigs = set()
+    if os.path.exists(qfile):
+        try:
+            with open(qfile, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            if isinstance(data, dict) and data.get("date") == hoje and isinstance(data.get("sigs"), list):
+                sigs = set(data["sigs"])
+        except Exception:
+            pass
+    _guardian_quarantine["date"] = hoje
+    _guardian_quarantine["sigs"] = sigs
+    return sigs
+
+
+def _record_guardian_quarantine(removed_items):
+    if not removed_items:
+        return
+    hoje = get_today_str()
+    sigs = _load_guardian_quarantine()
+    added = False
+    for it in removed_items:
+        sig = _guardian_offer_sig(it)
+        if sig not in sigs:
+            sigs.add(sig)
+            added = True
+    if added:
+        try:
+            atomic_json_write(
+                os.path.join(BASE_DIR, "quarentena_guardiao.json"),
+                {"date": hoje, "sigs": sorted(sigs)},
+            )
+        except OSError:
+            pass
+
+
+def is_guardian_quarantined(item):
+    if not item or item.get("data") != get_today_str():
+        return False
+    return _guardian_offer_sig(item) in _load_guardian_quarantine()
 
 
 def perform_guardian_sweep(log_anomalies=True):
@@ -2626,6 +2690,8 @@ def perform_guardian_sweep(log_anomalies=True):
             return report
 
         healed, report = run_guardian_sweep(atuais, offer_key_fn=offer_key, log_anomalies=log_anomalies)
+        if report.get("removedItems"):
+            _record_guardian_quarantine(report["removedItems"])
         if report["changed"]:
             save_produtos(healed)
             add_panel_log(

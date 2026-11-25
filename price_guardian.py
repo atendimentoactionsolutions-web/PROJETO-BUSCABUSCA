@@ -1048,7 +1048,7 @@ def run_guardian_sweep(rows, offer_key_fn=None, log_anomalies=True):
         if len(peer_vals) >= 3:
             med = _median_of(peer_vals)
             is_core_device = any(k in mod for k in ("IPHONE", "MACBOOK", "IMAC", "MAC MINI", "MAC STUDIO", "IPAD", "APPLE WATCH"))
-            low_threshold = 0.78 if is_core_device else 0.65
+            low_threshold = 0.78 if is_core_device else (0.55 if med <= 350 else 0.65)
             if price <= med * low_threshold:
                 pct = round((1 - price / med) * 100)
                 held_ids[id(it)] = f"Valor {pct}% abaixo da mediana do modelo (R$ {med:.0f}) — provável seminovo ou erro"
@@ -1069,6 +1069,7 @@ def run_guardian_sweep(rows, offer_key_fn=None, log_anomalies=True):
 
     # Fase 3: Módulo de Análise e Autocorreção para itens divergentes
     final_map = {}
+    removed_items = []
     for it in stage1_list:
         div_reason = held_ids.get(id(it))
         if not div_reason:
@@ -1104,6 +1105,14 @@ def run_guardian_sweep(rows, offer_key_fn=None, log_anomalies=True):
                 continue
 
         removed += 1
+        removed_items.append({
+            "data": it.get("data", ""),
+            "fornecedor": it.get("fornecedor", ""),
+            "modelo": mod_up,
+            "capacidade": it.get("capacidade", "-"),
+            "cor": it.get("cor", "-"),
+            "preco": round(price, 2),
+        })
         if log_anomalies:
             log_anomaly(it, f"VISTORIA_5MIN_DIVERGENCIA: {div_reason}")
         if len(actions) < 30:
@@ -1122,6 +1131,7 @@ def run_guardian_sweep(rows, offer_key_fn=None, log_anomalies=True):
         "reclassified": reclassified,
         "deduplicated": deduplicated,
         "actions": actions,
+        "removedItems": removed_items,
     }
     return final_items, report
 
