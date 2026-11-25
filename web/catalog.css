@@ -39,6 +39,12 @@ svg {
 }
 .brand { display: flex; align-items: center; }
 .brand svg { width: 20px; height: 22px; fill: #111827; stroke: none; }
+.topbar-actions { display: flex; align-items: center; gap: 8px; }
+.user-pill { font-size: 12px; font-weight: 600; color: #374151; background: #f3f4f6; padding: 5px 10px; border-radius: 999px; }
+.topbar-btn { font-size: 12px; font-weight: 600; padding: 6px 12px; border-radius: 8px; border: 1px solid var(--line); background: #fff; color: #111827; }
+.topbar-btn:hover { background: #f3f4f6; }
+.topbar-logout { color: #b91c1c; border-color: #fecaca; }
+.topbar-logout:hover { background: #fef2f2; }
 
 .catalog {
   padding: 18px 24px 0;

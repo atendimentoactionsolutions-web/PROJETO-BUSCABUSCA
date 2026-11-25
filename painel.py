@@ -23,6 +23,7 @@ if hasattr(time, "tzset"):
 import daily_review
 import apple_reference
 import color_guardian
+import access_control
 from parser_listas import parse_supplier_message
 from price_guardian import (
     offer_color, public_price_review, review_quoted_price, validate_product,
@@ -714,9 +715,10 @@ def campaign_worker():
 
 
 # ==============================================================================
-# PÁGINA 1 (ABERTA / PÚBLICA): BUSCADOR DOS MELHORES PREÇOS DO DIA (/)
+# PÁGINA 1: BUSCADOR DOS MELHORES PREÇOS DO DIA (/) + LOGIN (/login)
 # ==============================================================================
 BUSCADOR_HTML = (Path(BASE_DIR) / "web" / "index.html").read_text(encoding="utf-8")
+LOGIN_HTML = (Path(BASE_DIR) / "web" / "login.html").read_text(encoding="utf-8")
 
 
 # ==============================================================================
@@ -975,8 +977,55 @@ ADMIN_HTML = """<!DOCTYPE html>
         <span class="badge AUTOJOIN">CONTROLES DE AUTOMAÇÃO</span>
         <span id="waStatusBadge" class="badge CONNECTING">Verificando...</span>
         <span id="campaignBadge" class="badge DISCONNECTED">DISPARO PARADO</span>
+        <button class="btn-ghost" onclick="logoutPanel()" style="padding:6px 12px;font-size:12px;">Sair</button>
       </div>
     </header>
+
+    <!-- Card 0: Gestão de Contas / Acessos do Buscador (Master Exclusivo) -->
+    <div class="card" id="accountsCard">
+      <h2>
+        <span>Gestão de Contas · Acessos do Buscador</span>
+        <span style="font-size:12px;color:var(--muted);font-weight:normal;">Apenas <code>admin</code> possui ajuste de preço · todas as demais contas entram com preço puro</span>
+      </h2>
+      <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end;margin-bottom:16px;">
+        <div style="flex:1;min-width:150px;">
+          <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px;">Nome / Loja</label>
+          <input type="text" id="accName" placeholder="Ex: Loja do João" style="width:100%;" />
+        </div>
+        <div style="min-width:140px;">
+          <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px;">Usuário (login)</label>
+          <input type="text" id="accUser" placeholder="Ex: joao" style="width:100%;" />
+        </div>
+        <div style="min-width:140px;">
+          <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px;">Senha</label>
+          <input type="text" id="accPass" placeholder="Mín. 3 caracteres" style="width:100%;" />
+        </div>
+        <div style="min-width:155px;">
+          <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px;">Vencimento (opcional)</label>
+          <input type="date" id="accExpiry" style="width:100%;" />
+        </div>
+        <button class="btn-green" onclick="createAccount()">+ Adicionar login</button>
+      </div>
+      <div id="accFeedback" style="font-size:13px;margin-bottom:10px;display:none;"></div>
+      <div style="overflow-x:auto;">
+        <table>
+          <thead>
+            <tr>
+              <th>Usuário</th>
+              <th>Nome / Loja</th>
+              <th>Perfil</th>
+              <th>Status</th>
+              <th>Vencimento</th>
+              <th>Último acesso</th>
+              <th>Ações</th>
+            </tr>
+          </thead>
+          <tbody id="accountsTbody">
+            <tr><td colspan="7" style="color:var(--muted);text-align:center;">Carregando contas...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
 
     <div id="pauseNotice" hidden role="status" style="background:#fff2d8;color:#815714;padding:16px;border-radius:8px;margin-bottom:20px;">Conta com restrição: envios e entradas automáticas pausados. Configurações e histórico continuam disponíveis.</div>
     <div class="stats-bar">
@@ -1505,8 +1554,152 @@ ADMIN_HTML = """<!DOCTYPE html>
       await loadState();
     }
 
+    function showAccFeedback(msg, isError) {
+      const el = document.getElementById('accFeedback');
+      if (!el) return;
+      el.textContent = msg;
+      el.style.color = isError ? '#f87171' : '#34d399';
+      el.style.display = 'block';
+    }
+
+    async function loadAccounts() {
+      const tbody = document.getElementById('accountsTbody');
+      if (!tbody) return;
+      try {
+        const res = await fetch('/api/accounts', { cache: 'no-store' });
+        if (res.status === 401 || res.status === 403) {
+          window.location.href = '/login?next=/admin';
+          return;
+        }
+        const data = await res.json();
+        if (!data.ok || !Array.isArray(data.accounts)) return;
+        tbody.innerHTML = '';
+        for (const a of data.accounts) {
+          const tr = document.createElement('tr');
+          const statusColor = a.status === 'ativo' ? '#34d399' : (a.status === 'pausado' ? '#fbbf24' : '#f87171');
+          const perfil = a.is_master
+            ? '<span style="color:#38bdf8;font-weight:600;">Master (Sem DFU)</span>'
+            : (a.dfu_enabled ? '<span style="color:#c084fc;font-weight:600;">Exclusivo (COM DFU)</span>' : '<span style="color:#cbd5e1;">Cliente (Sem DFU)</span>');
+          const expText = a.expires_at ? a.expires_at : 'Sem limite';
+          const lastLogin = a.last_login_at || 'Nunca acessou';
+          const pauseLabel = a.active ? 'Pausar' : 'Ativar';
+          const pauseBtn = a.is_master ? '' : '<button class="btn-ghost" style="padding:4px 8px;font-size:11px;" onclick="toggleAccountPause(' + JSON.stringify(a.username) + ',' + (!a.active) + ')">' + pauseLabel + '</button>';
+          const expBtn = a.is_master ? '' : '<button class="btn-ghost" style="padding:4px 8px;font-size:11px;" onclick="changeAccountExpiry(' + JSON.stringify(a.username) + ',' + JSON.stringify(a.expires_at || '') + ')">Vencimento</button>';
+          const passBtn = '<button class="btn-ghost" style="padding:4px 8px;font-size:11px;" onclick="changeAccountPassword(' + JSON.stringify(a.username) + ')">Senha</button>';
+          const delBtn = (a.is_master || a.dfu_enabled) ? '' : '<button class="btn-ghost" style="padding:4px 8px;font-size:11px;color:#f87171;" onclick="deleteAccount(' + JSON.stringify(a.username) + ')">Remover</button>';
+          tr.innerHTML =
+            '<td><strong>' + escapeHtml(a.username) + '</strong></td>' +
+            '<td>' + escapeHtml(a.name || a.username) + '</td>' +
+            '<td>' + perfil + '</td>' +
+            '<td><span style="color:' + statusColor + ';font-weight:700;text-transform:uppercase;font-size:11px;">' + escapeHtml(a.status) + '</span></td>' +
+            '<td>' + escapeHtml(expText) + '</td>' +
+            '<td style="font-size:12px;color:var(--muted);">' + escapeHtml(lastLogin) + '</td>' +
+            '<td style="display:flex;gap:6px;flex-wrap:wrap;">' + pauseBtn + passBtn + expBtn + delBtn + '</td>';
+          tbody.appendChild(tr);
+        }
+      } catch (e) {}
+    }
+
+    async function createAccount() {
+      const name = document.getElementById('accName').value.trim();
+      const username = document.getElementById('accUser').value.trim();
+      const password = document.getElementById('accPass').value;
+      const expires_at = document.getElementById('accExpiry').value.trim();
+      if (!username || !password) {
+        showAccFeedback('Informe usuário e senha.', true);
+        return;
+      }
+      const res = await fetch('/api/accounts/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, username, password, expires_at })
+      });
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        showAccFeedback(data.error || 'Erro ao criar login.', true);
+        return;
+      }
+      document.getElementById('accName').value = '';
+      document.getElementById('accUser').value = '';
+      document.getElementById('accPass').value = '';
+      document.getElementById('accExpiry').value = '';
+      showAccFeedback('Login "' + data.account.username + '" criado com sucesso (Sem DFU).', false);
+      await loadAccounts();
+    }
+
+    async function toggleAccountPause(username, active) {
+      const res = await fetch('/api/accounts/pause', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, active })
+      });
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        showAccFeedback(data.error || 'Erro ao atualizar conta.', true);
+        return;
+      }
+      showAccFeedback('Conta "' + username + '" ' + (active ? 'ativada.' : 'pausada.'), false);
+      await loadAccounts();
+    }
+
+    async function changeAccountPassword(username) {
+      const password = prompt('Nova senha para "' + username + '" (mínimo 3 caracteres):');
+      if (password === null) return;
+      const res = await fetch('/api/accounts/password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password })
+      });
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        showAccFeedback(data.error || 'Erro ao alterar senha.', true);
+        return;
+      }
+      showAccFeedback('Senha de "' + username + '" alterada com sucesso.', false);
+      await loadAccounts();
+    }
+
+    async function changeAccountExpiry(username, currentExp) {
+      const expires_at = prompt('Data de vencimento para "' + username + '" (AAAA-MM-DD ou vazio para sem limite):', currentExp || '');
+      if (expires_at === null) return;
+      const res = await fetch('/api/accounts/expiry', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, expires_at: expires_at.trim() })
+      });
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        showAccFeedback(data.error || 'Erro ao alterar vencimento.', true);
+        return;
+      }
+      showAccFeedback('Vencimento de "' + username + '" atualizado.', false);
+      await loadAccounts();
+    }
+
+    async function deleteAccount(username) {
+      if (!confirm('Remover permanentemente o login "' + username + '"?')) return;
+      const res = await fetch('/api/accounts/delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username })
+      });
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        showAccFeedback(data.error || 'Erro ao remover login.', true);
+        return;
+      }
+      showAccFeedback('Login "' + username + '" removido.', false);
+      await loadAccounts();
+    }
+
+    async function logoutPanel() {
+      await fetch('/api/auth/logout', { method: 'POST' });
+      window.location.href = '/login';
+    }
+
     setInterval(loadState, 2000);
     loadState();
+    loadAccounts();
   </script>
 </body>
 </html>
@@ -1528,12 +1721,14 @@ class PanelHandler(BaseHTTPRequestHandler):
         self.send_header("Access-Control-Max-Age", "3600")
         self.end_headers()
 
-    def _send_json(self, obj, status=200, cors=False):
+    def _send_json(self, obj, status=200, cors=False, set_cookie=None):
         body = json.dumps(obj, ensure_ascii=False).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Cache-Control", "no-store")
         self.send_header("X-Content-Type-Options", "nosniff")
+        if set_cookie:
+            self.send_header("Set-Cookie", set_cookie)
         if cors:
             self.send_header("Access-Control-Allow-Origin", "*")
             self.send_header("Access-Control-Allow-Headers", "Content-Type, X-API-Key, Authorization")
@@ -1541,6 +1736,33 @@ class PanelHandler(BaseHTTPRequestHandler):
         self.end_headers()
         if self.command != "HEAD":
             self.wfile.write(body)
+
+    def _send_redirect(self, location, status=302, set_cookie=None):
+        self.send_response(status)
+        self.send_header("Location", location)
+        self.send_header("Cache-Control", "no-store")
+        if set_cookie:
+            self.send_header("Set-Cookie", set_cookie)
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+
+    def _is_direct_local_request(self):
+        peer = (self.client_address[0] or "")
+        has_proxy = bool(self.headers.get("X-Forwarded-For") or self.headers.get("X-Real-IP"))
+        host_hdr = (self.headers.get("Host") or "").lower()
+        is_local_host = (not host_hdr) or host_hdr.startswith(("127.0.0.1", "localhost"))
+        return peer in ("127.0.0.1", "::1") and not has_proxy and is_local_host
+
+    def _current_user(self):
+        token = access_control.extract_cookie_token(self.headers.get("Cookie", ""))
+        if not token:
+            return None
+        return access_control.verify_session_token(token)
+
+    def _build_session_cookie(self, token, max_age=None):
+        age = access_control.SESSION_MAX_AGE if max_age is None else max_age
+        secure = "; Secure" if (self.headers.get("X-Forwarded-Proto") or "").lower() == "https" else ""
+        return f"{access_control.COOKIE_NAME}={token}; Path=/; HttpOnly; SameSite=Lax; Max-Age={age}{secure}"
 
     def _check_api_v1_auth(self):
         expected = get_api_v1_key()
@@ -1602,28 +1824,90 @@ class PanelHandler(BaseHTTPRequestHandler):
             return
 
 
-        # Rota Aberta / Pública -> Buscador de Preços
+        # Tela de Login
+        if parsed.path in ("/login", "/login.html"):
+            user = self._current_user()
+            if user:
+                qs = parse_qs(parsed.query)
+                nxt = (qs.get("next") or [""])[0]
+                if nxt == "/admin" and user.get("role") == "master":
+                    self._send_redirect("/admin")
+                else:
+                    self._send_redirect("/")
+                return
+            self._send_html(LOGIN_HTML)
+            return
+
+        if parsed.path == "/api/auth/me":
+            user = self._current_user()
+            if not user:
+                self._send_json({"authenticated": False, "user": None})
+                return
+            self._send_json({"authenticated": True, "user": access_control.sanitize_account(user)})
+            return
+
+        # Buscador de Preços (protegido por login)
         if parsed.path in ("/", "/index.html", "/buscador"):
+            user = self._current_user()
+            if not user:
+                self._send_redirect("/login")
+                return
             self._send_html(BUSCADOR_HTML)
             return
 
-        # Rota Administrativa -> Painel WhatsApp & Comunidades
+        # Painel Administrativo & Gestão de Contas (EXCLUSIVO Master `cledson`)
         if parsed.path in ("/admin", "/painel"):
+            user = self._current_user()
+            if not user:
+                self._send_redirect("/login?next=/admin")
+                return
+            if user.get("role") != "master":
+                self._send_redirect("/")
+                return
             self._send_html(ADMIN_HTML)
             return
 
         if parsed.path == "/api/products":
+            user = self._current_user()
+            is_local = self._is_direct_local_request()
+            if not user and not is_local:
+                self._send_json({"ok": False, "error": "Faça login para acessar o catálogo."}, status=401)
+                return
             produtos, _ = public_price_review(load_produtos())
             wa = bridge_status_lite()
             archived_cnt = int(wa.get("archivedMonitoredCount", 0))
             comm_cnt = int(wa.get("communitiesCount", 0))
-            self._send_json({
-                "products": [{k: v for k, v in p.items() if k not in
-                              ("alertaPreco", "alertaFaixaModelo", "observacao", "revisao", "contextoOriginal")}
-                             for p in produtos],
-                "whatsappStatus": wa.get("status", "CONNECTING"),
-                "communitiesCount": max(comm_cnt, archived_cnt),
-            })
+            if user:
+                # Regra de ouro: DFU aplicado silenciosamente SOMENTE se user["dfu_enabled"] == True (exclusivo `admin`)
+                out_products = access_control.apply_user_pricing(produtos, bool(user.get("dfu_enabled")), compute_dfu_delta)
+                self._send_json({
+                    "products": out_products,
+                    "dfuApplied": True,
+                    "user": {
+                        "username": user.get("username"),
+                        "name": user.get("name"),
+                        "role": user.get("role"),
+                        "expires_at": user.get("expires_at"),
+                    },
+                    "whatsappStatus": wa.get("status", "CONNECTING"),
+                    "communitiesCount": max(comm_cnt, archived_cnt),
+                })
+            else:
+                # Integração interna na VPS via 127.0.0.1 (sem proxy) mantém custo base bruto
+                out_products = access_control.apply_user_pricing(produtos, False, compute_dfu_delta)
+                self._send_json({
+                    "products": out_products,
+                    "whatsappStatus": wa.get("status", "CONNECTING"),
+                    "communitiesCount": max(comm_cnt, archived_cnt),
+                })
+            return
+
+        if parsed.path == "/api/accounts":
+            user = self._current_user()
+            if not (user and user.get("role") == "master") and not self._is_direct_local_request():
+                self._send_json({"ok": False, "error": "Acesso restrito ao usuário master."}, status=403)
+                return
+            self._send_json({"ok": True, "accounts": access_control.list_accounts()})
             return
 
         if parsed.path in ("/api/v1/feed", "/api/v1/suppliers", "/api/v1/status"):
@@ -1656,6 +1940,10 @@ class PanelHandler(BaseHTTPRequestHandler):
                 return
 
         if parsed.path == "/api/panel-state":
+            user = self._current_user()
+            if not (user and user.get("role") == "master") and not self._is_direct_local_request():
+                self._send_json({"ok": False, "error": "Acesso restrito ao usuário master."}, status=403)
+                return
             cfg = load_config()
             fornecedores = load_fornecedores()
             historico = load_historico()
@@ -1720,12 +2008,95 @@ class PanelHandler(BaseHTTPRequestHandler):
             self._send_json({"error": "Envie application/json"}, status=415)
             return
         parsed = urlparse(self.path)
-        if automation_paused() and parsed.path in ("/api/start-campaign", "/api/send-single", "/api/join-community", "/api/archive-all"):
-            self._send_json({"ok": False, "error": "Automações pausadas pela restrição da conta. Apenas configurações e consultas estão disponíveis."}, status=423)
+
+        # Rotas de autenticação (abertas)
+        if parsed.path == "/api/auth/login":
+            body = self._read_body_json()
+            ok, err, acc, token = access_control.authenticate(body.get("username", ""), body.get("password", ""))
+            if not ok or not acc or not token:
+                self._send_json({"ok": False, "error": err or "Credenciais inválidas."}, status=401)
+                return
+            nxt = str(body.get("next") or "").strip()
+            redirect_to = "/admin" if (nxt == "/admin" and acc.get("role") == "master") else "/"
+            self._send_json(
+                {"ok": True, "user": access_control.sanitize_account(acc), "redirect": redirect_to},
+                set_cookie=self._build_session_cookie(token),
+            )
             return
 
-        if parsed.path.startswith("/api/internal/") and self.client_address[0] not in ("127.0.0.1", "::1"):
-            self._send_json({"error": "Acesso interno"}, status=403)
+        if parsed.path == "/api/auth/logout":
+            self._send_json({"ok": True}, set_cookie=self._build_session_cookie("", max_age=0))
+            return
+
+        if parsed.path.startswith("/api/internal/"):
+            if not self._is_direct_local_request():
+                self._send_json({"error": "Acesso interno"}, status=403)
+                return
+        else:
+            # Todas as demais rotas POST são administrativas (exclusivas do Master `cledson`)
+            user = self._current_user()
+            if not (user and user.get("role") == "master") and not self._is_direct_local_request():
+                self._send_json({"ok": False, "error": "Acesso restrito ao usuário master."}, status=403)
+                return
+
+        if parsed.path == "/api/accounts/create":
+            body = self._read_body_json()
+            try:
+                acc = access_control.create_account(
+                    body.get("username", ""),
+                    body.get("password", ""),
+                    name=body.get("name", ""),
+                    expires_at=body.get("expires_at"),
+                )
+                add_panel_log(f"[CONTAS] Novo login criado: {acc['username']} (vencimento: {acc['expires_at'] or 'sem limite'})")
+                self._send_json({"ok": True, "account": acc})
+            except ValueError as exc:
+                self._send_json({"ok": False, "error": str(exc)}, status=400)
+            return
+
+        if parsed.path == "/api/accounts/pause":
+            body = self._read_body_json()
+            try:
+                acc = access_control.set_account_active(body.get("username", ""), bool(body.get("active", False)))
+                add_panel_log(f"[CONTAS] Login {acc['username']} {'ativado' if acc['active'] else 'pausado'}.")
+                self._send_json({"ok": True, "account": acc})
+            except ValueError as exc:
+                self._send_json({"ok": False, "error": str(exc)}, status=400)
+            return
+
+        if parsed.path == "/api/accounts/password":
+            body = self._read_body_json()
+            try:
+                acc = access_control.change_account_password(body.get("username", ""), body.get("password", ""))
+                add_panel_log(f"[CONTAS] Senha alterada para: {acc['username']}.")
+                self._send_json({"ok": True, "account": acc})
+            except ValueError as exc:
+                self._send_json({"ok": False, "error": str(exc)}, status=400)
+            return
+
+        if parsed.path == "/api/accounts/expiry":
+            body = self._read_body_json()
+            try:
+                acc = access_control.update_account_expiry(body.get("username", ""), body.get("expires_at"))
+                add_panel_log(f"[CONTAS] Vencimento atualizado para {acc['username']}: {acc['expires_at'] or 'sem limite'}.")
+                self._send_json({"ok": True, "account": acc})
+            except ValueError as exc:
+                self._send_json({"ok": False, "error": str(exc)}, status=400)
+            return
+
+        if parsed.path == "/api/accounts/delete":
+            body = self._read_body_json()
+            try:
+                uname = access_control.normalize_username(body.get("username", ""))
+                access_control.delete_account(uname)
+                add_panel_log(f"[CONTAS] Login removido: {uname}.")
+                self._send_json({"ok": True})
+            except ValueError as exc:
+                self._send_json({"ok": False, "error": str(exc)}, status=400)
+            return
+
+        if automation_paused() and parsed.path in ("/api/start-campaign", "/api/send-single", "/api/join-community", "/api/archive-all"):
+            self._send_json({"ok": False, "error": "Automações pausadas pela restrição da conta. Apenas configurações e consultas estão disponíveis."}, status=423)
             return
 
         if parsed.path == "/api/internal/message-ack":
@@ -2346,6 +2717,7 @@ def color_guardian_worker():
 
 
 def main():
+    access_control.load_accounts()
     reset_thread.start()
     load_config()
     cleanup_old_products_on_start()

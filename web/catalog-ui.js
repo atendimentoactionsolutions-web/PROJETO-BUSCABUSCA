@@ -14,7 +14,7 @@ const CATEGORY_ICONS = {
   cpo: ['M12 2l3 6 6 .9-4.5 4.4 1 6.2L12 16.5 6.5 19.5l1-6.2L3 8.9 9 8l3-6Z'],
   seminovos: ['M4 4h16v16H4z','M4 9h16','M9 4v16','M12 15l2 2 4-4']
 };
-let catalog = [], selectedCategory = 'iphone', perPage = 60, limit = 60, refreshing = false, demo = false;
+let catalog = [], selectedCategory = 'iphone', perPage = 60, limit = 60, refreshing = false, demo = false, serverPriced = false;
 let lastPayload = null, selection = null;
 function element(tag, className, content) {
   const node = document.createElement(tag);
@@ -97,8 +97,7 @@ function card(group) {
     dot.style.backgroundColor=swatch(variant.key); dot.setAttribute('aria-hidden','true');
     color.append(dot,element('span','color-name',displayColor));
     const actions=element('div','variant-actions'), pricing=element('div','price-stack');
-    const dfuDelta = getDfuDelta(group.offers[0] || { modelo: group.model, condicao: group.condition }, group.category);
-    const effMin = variant.minimum + dfuDelta;
+    const effMin = serverPriced ? variant.minimum : (variant.minimum + getDfuDelta(group.offers[0] || { modelo: group.model, condicao: group.condition }, group.category));
     pricing.append(element('span','price-label','CUSTO'),element('strong','price',money(effMin)));
     const eyeBtn=element('button','eye-button variant-eye');
     eyeBtn.type='button';
@@ -153,7 +152,7 @@ function renderSupplierList(group,colorKey) {
     const info=element('div'), name=element('div','supplier-name',offer.fornecedor || 'Fornecedor não identificado');
     info.append(name,element('div','supplier-details',[offer.modelo,colorLabel(offer.cor),offer.condicao,offer.origem,offer.data,offer.hora].filter(Boolean).join(' · ')));
     if (index===0) info.append(element('span','best-label','MENOR VALOR DESTA SELEÇÃO'));
-    const dfuPrice = effectivePrice(offer, group.category);
+    const dfuPrice = serverPriced ? Number(offer.preco) : effectivePrice(offer, group.category);
     const pricing=element('div','supplier-cost');
     pricing.append(element('strong','',money(dfuPrice)));
     const phone=String(offer.telefone||'').replace(/\D/g,'');
@@ -175,15 +174,36 @@ function openSuppliers(group,colorKey) {
   renderSupplierList(group,colorKey);
   $('supplierDialog').showModal();
 }
+function updateUserBar(user) {
+  if (!user || !user.username) return;
+  if ($('userBadge')) {
+    const exp = user.expires_at ? ` · até ${user.expires_at}` : '';
+    $('userBadge').textContent = `${user.name || user.username}${exp}`;
+    $('userBadge').hidden = false;
+  }
+  const isMaster = user.role === 'master';
+  if ($('adminNavBtn')) $('adminNavBtn').hidden = !isMaster;
+  if ($('footerAdminLink')) $('footerAdminLink').hidden = !isMaster;
+  if ($('btnLogout')) $('btnLogout').hidden = false;
+}
+if ($('btnLogout')) {
+  $('btnLogout').addEventListener('click', async () => {
+    try { await fetch('/api/auth/logout', { method: 'POST' }); } catch (_) {}
+    window.location.href = '/login';
+  });
+}
 async function refresh() {
   if (refreshing) return;
   refreshing=true;
   try {
     const response=await fetch('/api/products',{signal:AbortSignal.timeout(12000),cache:'no-store'});
+    if (response.status === 401) { window.location.href = '/login'; return; }
     if (!response.ok) throw new Error('Falha no catálogo');
     const data=await response.json();
     if (!Array.isArray(data.products)) throw new Error('Catálogo inválido');
     demo=data.demo===true;
+    serverPriced=data.dfuApplied===true;
+    if (data.user) updateUserBar(data.user);
     const payload=JSON.stringify(data.products);
     if (lastPayload!==payload) {
       catalog=groupProducts(data.products);lastPayload=payload;renderCategories();renderCatalog();

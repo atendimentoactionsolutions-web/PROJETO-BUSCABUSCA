@@ -13,6 +13,11 @@
     <a class="brand" href="/" aria-label="BuscaBusca — início">
       <svg viewBox="0 0 24 28" aria-hidden="true"><path d="M16.7 4.4c1-1.2 1.6-2.6 1.5-4.1-1.5.1-3.3 1-4.3 2.2-.9 1-1.7 2.6-1.5 4 1.7.1 3.3-.8 4.3-2.1ZM20.9 14.5c0-3.3 2.7-4.8 2.8-4.9-1.6-2.3-4-2.6-4.9-2.7-2.1-.2-4.1 1.2-5.2 1.2-1 0-2.7-1.2-4.5-1.2C6.8 7 4.5 8.4 3.3 10.4.8 14.8 2.6 21.4 5 24.9c1.2 1.7 2.5 3.5 4.3 3.4 1.7-.1 2.4-1.1 4.5-1.1 2 0 2.7 1.1 4.5 1 1.9 0 3.1-1.7 4.2-3.4 1.4-1.9 2-3.8 2-3.9-.1 0-3.6-1.4-3.6-5.4Z" transform="translate(-1 -1) scale(.9)"/></svg>
     </a>
+    <div class="topbar-actions">
+      <span class="user-pill" id="userBadge" hidden></span>
+      <a class="topbar-btn" id="adminNavBtn" href="/admin" hidden>Painel Admin</a>
+      <button type="button" class="topbar-btn topbar-logout" id="btnLogout" hidden>Sair</button>
+    </div>
   </header>
   <main class="catalog" aria-label="Catálogo de fornecedores">
     <nav class="category-bar" id="categories" aria-label="Categorias de produtos"></nav>
@@ -38,7 +43,7 @@
   </main>
   <footer class="catalog-footer">
     <div class="footer-info"><span id="catalogStatus" role="status">Carregando ofertas…</span><span>Menores preços entre as listas capturadas. Confirme estoque e condições com o fornecedor.</span></div>
-    <a class="admin-link" href="/admin">Central de fornecedores ↗</a>
+    <a class="admin-link" id="footerAdminLink" href="/admin" hidden>Central de fornecedores ↗</a>
   </footer>
   <dialog id="supplierDialog" aria-labelledby="supplierTitle">
     <div class="modal-header"><div><h2 id="supplierTitle"></h2><p class="modal-subtitle" id="supplierSubtitle"></p></div><button class="close-button" data-close="supplierDialog" aria-label="Fechar fornecedores"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div>
