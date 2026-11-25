@@ -686,6 +686,8 @@ async function unarchiveChatJid(chatJid) {
 }
 
 // Vistoria completa: sincroniza todos os contatos/grupos arquivados no aparelho e puxa o histórico de mensagens deles
+let activeLeaveBlockedMembership = null;
+
 async function deepScanAllArchivedAndCommunities() {
   const generation = socketGeneration;
   if (scanGeneration === generation) return { ok: true, inProgress: true };
@@ -740,7 +742,9 @@ async function scanArchivedAndCommunities(generation) {
     for (const g of Object.values(groupsObj || {})) {
       if (!active()) return { ok: false, interrupted: true };
       if (!g?.id || !g.id.endsWith('@g.us')) continue;
-      if (hasBlocklist) await leaveBlockedMembership(g.id);
+      if (hasBlocklist && typeof activeLeaveBlockedMembership === 'function') {
+        await activeLeaveBlockedMembership(g.id);
+      }
       if (isInviteBlocked(g.subject || '', g.id)) continue;
       if (isNeverArchiveGroup(g.id, g.subject || '')) {
         await unarchiveChatJid(g.id);
@@ -1280,6 +1284,7 @@ async function startWhatsApp() {
       },
       onError: (error, jid) => addLog(`[ESCOPO] Não foi possível sair do grupo bloqueado ${jid}: ${error.message}`)
     });
+    activeLeaveBlockedMembership = leaveBlockedMembership;
     waSocket.ev.on('groups.upsert', groups => {
       for (const group of groups || []) void leaveBlockedMembership(group.id);
     });
