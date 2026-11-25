@@ -1742,6 +1742,7 @@ app.get('/api/groups', async (req, res) => {
         knownSupplier: isKnownSupplierJid(g.id),
         blocked: false
       });
+      const blockedOrExcluded = !isSafeGroupName(subject, g.id) || isInviteBlocked(subject, g.id) || isNeverArchiveGroup(g.id, subject);
       return {
         id: g.id,
         subject,
@@ -1749,6 +1750,7 @@ app.get('/api/groups', async (req, res) => {
         isCommunity: !!g.isCommunity,
         isCommunityAnnounce: !!g.isCommunityAnnounce,
         linkedParent: g.linkedParent || '',
+        blacklisted: blockedOrExcluded,
         decision
       };
     });

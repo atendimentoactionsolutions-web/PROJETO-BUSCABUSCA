@@ -136,6 +136,8 @@ def evaluate_coverage(
             gid = str(g.get("id") or "").strip()
             if not gid:
                 continue
+            if g.get("blacklisted"):
+                continue
             is_comm = bool(g.get("isCommunity") or g.get("isCommunityAnnounce"))
             raw_dec = g.get("decision")
             # Ignora grupos explicitamente fora do escopo (ex: grupo pessoal / decision.allowed == False)

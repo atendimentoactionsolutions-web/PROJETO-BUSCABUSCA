@@ -26,6 +26,7 @@ class CoverageGuardianTests(unittest.TestCase):
                     {"id": "120363001@g.us", "subject": "ATACA APPLE", "isCommunity": True, "decision": {"allowed": True}},
                     {"id": "120363002@g.us", "subject": "FORNECEDOR VIP", "isCommunity": False, "decision": {"allowed": True}},
                     {"id": "120363999@g.us", "subject": "FAMILIA PESSOAL", "isCommunity": False, "decision": {"allowed": False}},
+                    {"id": "120363888@g.us", "subject": "iFindz Bloqueado", "isCommunity": True, "blacklisted": True, "decision": {"allowed": False}},
                 ],
                 monitored_list=[
                     {"jid": "120363001@g.us", "name": "ATACA APPLE"},
