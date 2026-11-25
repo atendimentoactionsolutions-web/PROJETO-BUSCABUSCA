@@ -32,7 +32,7 @@ systemctl stop disparador-pxt
 mv "$app/node_modules" "$backup/node_modules"
 mv "$release/node_modules" "$app/node_modules"
 mkdir -p "$app/web" "$app/tests" "$app/scripts"
-for file in painel.py daily_review.py color_guardian.py access_control.py whatsapp_bridge.js capture_queue.js invite_queue.js invite_policy.js delivery_tracking.js parser_listas.py price_guardian.py apple_reference.py apple_reference_seed.json package.json package-lock.json README.md .gitignore INICIAR_DISPARADOR.bat; do
+for file in painel.py daily_review.py color_guardian.py coverage_guardian.py access_control.py whatsapp_bridge.js capture_queue.js invite_queue.js invite_policy.js delivery_tracking.js parser_listas.py price_guardian.py apple_reference.py apple_reference_seed.json package.json package-lock.json README.md .gitignore INICIAR_DISPARADOR.bat; do
   cp "$release/$file" "$app/$file"
 done
 cp "$release/web/"*.html "$release/web/"*.css "$release/web/"*.js "$app/web/"

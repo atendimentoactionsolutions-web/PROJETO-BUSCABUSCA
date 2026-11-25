@@ -25,6 +25,7 @@ if hasattr(time, "tzset"):
 import daily_review
 import apple_reference
 import color_guardian
+import coverage_guardian
 import access_control
 from parser_listas import parse_supplier_message
 from price_guardian import (
@@ -635,9 +636,9 @@ reset_thread = threading.Thread(target=midnight_reset_worker, daemon=True)
 _bridge_lite_cache = {"at": 0.0, "data": {}}
 
 
-def bridge_get(path):
+def bridge_get(path, timeout=8):
     req = urllib.request.Request(f"{BRIDGE_URL}{path}", headers={"Accept": "application/json"})
-    with urllib.request.urlopen(req, timeout=8) as resp:
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
         return json.loads(resp.read().decode("utf-8"))
 
 
@@ -1145,6 +1146,18 @@ ADMIN_HTML = """<!DOCTYPE html>
 
     <p id="replySummary" style="margin:0 0 18px;color:var(--muted);font-size:13px;">Histórico permanente. A fila continua somente pelos contatos pendentes.</p>
     <p style="margin:0 0 18px;color:var(--muted);font-size:12px;">As respostas anteriores serão identificadas conforme o WhatsApp sincronizar. Sem resposta registrada não significa que o fornecedor nunca respondeu.</p>
+    <!-- Card 0B: Robô de Cobertura de Comunidades, Canais e Contatos -->
+    <div class="card" id="coverageCard">
+      <h2>
+        <span>Robô de Cobertura · Comunidades, Canais e Contatos</span>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <span id="covStatusBadge" class="badge CONNECTING">Auditando...</span>
+          <button class="btn-ghost" onclick="runCoverageAuditNow()" style="padding:5px 10px;font-size:12px;">Verificar agora</button>
+        </div>
+      </h2>
+      <div id="covSummary" style="font-size:13px;color:var(--muted);line-height:1.6;">Carregando cobertura de comunidades, grupos e contatos...</div>
+    </div>
+
     <div class="grid-top">
       <!-- Card 1: Conexão WhatsApp -->
       <div class="card" style="margin-bottom:0;">
@@ -1363,6 +1376,7 @@ ADMIN_HTML = """<!DOCTYPE html>
         document.getElementById('stProducts').textContent = data.stats.productsCount || 0;
         document.getElementById('stErrors').textContent = data.stats.errors;
         document.getElementById('replySummary').textContent = data.respostasCount + ' fornecedores com resposta registrada. ' + (data.stats.eligible || 0) + ' contatos aptos para envio. Histórico permanente.';
+        if (data.coverageAudit) renderCoverage(data.coverageAudit);
 
         const commBody = document.getElementById('commTableBody');
         const combinedRows = [];
@@ -1789,6 +1803,40 @@ ADMIN_HTML = """<!DOCTYPE html>
       window.location.href = '/login';
     }
 
+    function renderCoverage(cov) {
+      const badge = document.getElementById('covStatusBadge');
+      const box = document.getElementById('covSummary');
+      if (!badge || !box || !cov) return;
+      const st = cov.status || 'AGUARDANDO';
+      badge.textContent = st === 'OK' ? 'COBERTURA 100% OK' : (st === 'ALERTA' ? 'ATENÇÃO' : st);
+      badge.className = 'badge ' + (st === 'OK' ? 'CONNECTED' : (st === 'ALERTA' ? 'CONNECTING' : 'DISCONNECTED'));
+      const issuesHtml = (cov.issues && cov.issues.length)
+        ? '<div style="margin-top:8px;color:#fbbf24;">⚠️ ' + cov.issues.map(escapeHtml).join(' · ') + '</div>'
+        : '<div style="margin-top:6px;color:#34d399;">✅ Todas as comunidades, canais e contatos monitorados sem falhas na fila.</div>';
+      const unmonHtml = (cov.unmonitoredGroupsCount > 0)
+        ? ' · <strong style="color:#f87171;">' + cov.unmonitoredGroupsCount + ' fora do radar</strong>'
+        : ' · <strong>0 fora do radar</strong>';
+      box.innerHTML =
+        '<div><strong>Mapeados:</strong> ' + (cov.monitoredTotal || 0) +
+        ' (' + (cov.monitoredGroups || 0) + ' grupos/comunidades · ' + (cov.monitoredChannels || 0) + ' canais · ' + (cov.monitoredPrivates || 0) + ' privados)' + unmonHtml + '</div>' +
+        '<div><strong>Leitura hoje:</strong> ' + (cov.activeSuppliersToday || 0) + ' fornecedores ativos (' + (cov.coverageVsYesterdayPct ?? 100) + '% vs ontem)' +
+        ' · ' + (cov.registeredActiveToday || 0) + '/' + (cov.registeredContacts || 0) + ' contatos cadastrados · ' + (cov.activeOriginsToday || 0) + ' origens com ofertas' +
+        ' · fila ' + (cov.capturePending || 0) + ' pend. / ' + (cov.captureFailed || 0) + ' falha(s)</div>' +
+        '<div style="font-size:11px;margin-top:4px;">Última auditoria: ' + escapeHtml(cov.checked || 'aguardando') +
+        (cov.recoveryTriggered ? ' · 🔄 Recuperação automática disparada' : '') + '</div>' +
+        issuesHtml;
+    }
+
+    async function runCoverageAuditNow() {
+      const badge = document.getElementById('covStatusBadge');
+      if (badge) badge.textContent = 'Verificando...';
+      try {
+        const res = await fetch('/api/coverage-audit', { method: 'POST' });
+        const data = await res.json();
+        if (data.ok && data.coverage) renderCoverage(data.coverage);
+      } catch (e) {}
+    }
+
     setInterval(loadState, 2000);
     loadState();
     loadAccounts();
@@ -2025,6 +2073,7 @@ class PanelHandler(BaseHTTPRequestHandler):
                     "dfuActive": True,
                     "lastSweep": last_guardian_sweep,
                     "lastColorAudit": last_color_audit,
+                    "lastCoverageAudit": last_coverage_audit,
                 }, cors=True)
                 return
 
@@ -2075,6 +2124,7 @@ class PanelHandler(BaseHTTPRequestHandler):
                     "productsCount": len(produtos),
                 },
                 "logs": combined_logs[:90],
+                "coverageAudit": last_coverage_audit,
             })
             return
 
@@ -2182,6 +2232,11 @@ class PanelHandler(BaseHTTPRequestHandler):
                 self._send_json({"ok": True})
             except ValueError as exc:
                 self._send_json({"ok": False, "error": str(exc)}, status=400)
+            return
+
+        if parsed.path == "/api/coverage-audit":
+            report = perform_coverage_audit(allow_recovery=True)
+            self._send_json({"ok": True, "coverage": report})
             return
 
         if automation_paused() and parsed.path in ("/api/start-campaign", "/api/send-single", "/api/join-community", "/api/archive-all"):
@@ -2869,6 +2924,51 @@ def color_guardian_worker():
         time.sleep(COLOR_AUDIT_INTERVAL_SECONDS)
 
 
+COVERAGE_AUDIT_INTERVAL_SECONDS = 600  # 10 minutos (super leve)
+last_coverage_audit = {"checked": None, "status": "AGUARDANDO", "monitoredTotal": 0, "issues": []}
+
+
+def perform_coverage_audit(allow_recovery=True):
+    """Robô autônomo que confere se TODAS as comunidades, canais e contatos estão sendo lidos."""
+    global last_coverage_audit
+    report = coverage_guardian.run_coverage_audit(
+        base_dir=BASE_DIR,
+        bridge_get_fn=lambda p: bridge_get(p, timeout=25 if "groups" in p else 8),
+        bridge_post_fn=bridge_post,
+        produtos_today=load_produtos(),
+        fornecedores=load_fornecedores(),
+        allow_recovery=allow_recovery,
+    )
+    last_coverage_audit = report
+    try:
+        atomic_json_write(coverage_guardian.COVERAGE_REPORT_FILE, report)
+    except OSError as exc:
+        print(f"[ROBÔ COBERTURA] Falha ao gravar relatório: {type(exc).__name__}", flush=True)
+    if report.get("issues"):
+        rec_tag = " · recuperação automática acionada" if report.get("recoveryTriggered") else ""
+        add_panel_log(
+            f"[ROBÔ COBERTURA] ⚠️ {' | '.join(report['issues'])} "
+            f"({report['monitoredTotal']} canais · {report['activeSuppliersToday']} fornecedores hoje){rec_tag}"
+        )
+    else:
+        add_panel_log(
+            f"[ROBÔ COBERTURA] ✅ {report['monitoredTotal']} canais/comunidades OK · "
+            f"0 fora do radar · {report['activeSuppliersToday']} fornecedores ativos hoje."
+        )
+    return report
+
+
+def coverage_guardian_worker():
+    """Robô autônomo dedicado a garantir leitura de 100% das comunidades, canais e contatos (a cada 10 min)."""
+    time.sleep(25)
+    while True:
+        try:
+            perform_coverage_audit(allow_recovery=True)
+        except Exception as exc:
+            print(f"[ROBÔ COBERTURA] Erro na auditoria periódica: {type(exc).__name__}: {exc}", flush=True)
+        time.sleep(COVERAGE_AUDIT_INTERVAL_SECONDS)
+
+
 def main():
     access_control.load_accounts()
     reset_thread.start()
@@ -2877,6 +2977,7 @@ def main():
     threading.Thread(target=catalog_monitor_worker, daemon=True).start()
     threading.Thread(target=guardian_sweep_worker, daemon=True).start()
     threading.Thread(target=color_guardian_worker, daemon=True).start()
+    threading.Thread(target=coverage_guardian_worker, daemon=True).start()
     threading.Thread(target=refresh_model_reference, daemon=True).start()
     threading.Thread(target=live_review_worker, daemon=True).start()
     threading.Thread(target=daily_review_worker, daemon=True).start()
