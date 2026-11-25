@@ -74,7 +74,7 @@ class ColorGuardianTests(unittest.TestCase):
         # S12 GPS + Cellular aceita Titânio/Cerâmica além do Alumínio
         for valid_cell in ("NATURAL TITÂNIO", "BRANCO", "AZUL"):
             ok, reason, _ = validate_product(
-                {"modelo": "APPLE WATCH S12 46MM GPS + CELLULAR", "capacidade": "46MM", "cor": valid_cell, "preco": 5500, "condicao": "Novo / Lacrado"},
+                {"modelo": "APPLE WATCH S12 46MM GPS + CELLULAR", "capacidade": "46MM", "cor": valid_cell, "preco": 4500, "condicao": "Novo / Lacrado"},
                 allow_seminovo=True, log_anomalies=False,
             )
             self.assertTrue(ok, f"S12 Cellular deveria aceitar {valid_cell}: {reason}")
