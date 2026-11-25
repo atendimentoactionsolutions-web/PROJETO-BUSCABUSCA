@@ -8,6 +8,10 @@ mkdir -p "$backup"
 chmod 700 /opt/backups "$backup"
 tar --exclude=node_modules --exclude=.git --exclude=__pycache__ -czf "$backup/application.tar.gz" -C "$app" .
 chmod 600 "$backup/application.tar.gz"
+if [ -d /var/lib/ofornecedor-db ]; then
+  tar -czf "$backup/accounts-db.tar.gz" -C /var/lib/ofornecedor-db .
+  chmod 600 "$backup/accounts-db.tar.gz"
+fi
 systemctl cat disparador-pxt > "$backup/service.txt"
 cd "$release"
 npm ci --omit=dev --no-audit --no-fund

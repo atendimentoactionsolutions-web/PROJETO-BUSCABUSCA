@@ -42,6 +42,7 @@ apple_colors_cache.json
 api_v1_key.txt
 usuarios_acesso.json
 session_secret.txt
+data_contas/
 ancoras_mensagens.json
 *.bak*
 *.tmp*

@@ -985,7 +985,7 @@ ADMIN_HTML = """<!DOCTYPE html>
     <div class="card" id="accountsCard">
       <h2>
         <span>Gestão de Contas · O Fornecedor</span>
-        <span style="font-size:12px;color:var(--muted);font-weight:normal;">Apenas <code>admin</code> possui ajuste de preço · todas as demais contas entram com preço puro</span>
+        <span id="accDbBadge" style="font-size:12px;color:var(--muted);font-weight:normal;">Banco SQLite persistente · apenas <code>admin</code> possui ajuste de preço</span>
       </h2>
       <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end;margin-bottom:16px;">
         <div style="flex:1;min-width:150px;">
@@ -1573,6 +1573,10 @@ ADMIN_HTML = """<!DOCTYPE html>
         }
         const data = await res.json();
         if (!data.ok || !Array.isArray(data.accounts)) return;
+        const dbBadge = document.getElementById('accDbBadge');
+        if (dbBadge && data.db) {
+          dbBadge.textContent = 'Banco SQLite isolado (' + data.accounts.length + ' contas · ' + (data.db.backupsCount || 0) + ' backups) · apenas admin tem ajuste';
+        }
         tbody.innerHTML = '';
         for (const a of data.accounts) {
           const tr = document.createElement('tr');
@@ -1907,7 +1911,7 @@ class PanelHandler(BaseHTTPRequestHandler):
             if not (user and user.get("role") == "master") and not self._is_direct_local_request():
                 self._send_json({"ok": False, "error": "Acesso restrito ao usuário master."}, status=403)
                 return
-            self._send_json({"ok": True, "accounts": access_control.list_accounts()})
+            self._send_json({"ok": True, "accounts": access_control.list_accounts(), "db": access_control.db_info()})
             return
 
         if parsed.path in ("/api/v1/feed", "/api/v1/suppliers", "/api/v1/status"):

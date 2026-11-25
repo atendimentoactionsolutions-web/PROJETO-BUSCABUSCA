@@ -15,17 +15,36 @@ from price_guardian import compute_dfu_delta
 class AccessControlTests(unittest.TestCase):
     def setUp(self):
         self.folder = tempfile.TemporaryDirectory()
-        self.acc_file = os.path.join(self.folder.name, "usuarios_acesso.json")
-        self.sec_file = os.path.join(self.folder.name, "session_secret.txt")
+        self.db_dir = os.path.join(self.folder.name, "db_isolado")
         self.prod_file = os.path.join(self.folder.name, "produtos_dia.json")
         self.patches = [
-            patch.object(access_control, "ACCOUNTS_FILE", self.acc_file),
-            patch.object(access_control, "SESSION_SECRET_FILE", self.sec_file),
+            patch.dict(os.environ, {"OFORNECEDOR_DB_DIR": self.db_dir}),
+            patch.object(access_control, "LEGACY_ACCOUNTS_FILE", os.path.join(self.folder.name, "legacy_none.json")),
+            patch.object(access_control, "LEGACY_SECRET_FILE", os.path.join(self.folder.name, "legacy_sec_none.txt")),
             patch.object(access_control, "_secret_cache", None),
             patch.object(painel, "PRODUTOS_FILE", self.prod_file),
         ]
         for p in self.patches:
             p.start()
+
+    def test_sqlite_persistence_survives_restart_and_never_overwrites_passwords(self):
+        access_control.init_db()
+        access_control.create_account("cliente1", "abc123", name="Cliente Um", expires_at="2099-05-01")
+        access_control.change_account_password("cledson", "nova_master_99")
+        # Simula novo deploy / reinício completo do processo (init_db + load_accounts novamente)
+        access_control._secret_cache = None
+        access_control.init_db()
+        accounts = {a["username"]: a for a in access_control.list_accounts()}
+        self.assertIn("cliente1", accounts)
+        self.assertEqual(accounts["cliente1"]["expires_at"], "2099-05-01")
+        # Senha alterada do master permanece preservada (não volta para "cledson")
+        self.assertFalse(access_control.authenticate("cledson", "cledson")[0])
+        self.assertTrue(access_control.authenticate("cledson", "nova_master_99")[0])
+        # Backup automático foi gerado na pasta isolada
+        info = access_control.db_info()
+        self.assertEqual(info["engine"], "sqlite3")
+        self.assertTrue(os.path.exists(info["path"]))
+        self.assertGreaterEqual(info["backupsCount"], 2)
 
     def tearDown(self):
         for p in self.patches:
