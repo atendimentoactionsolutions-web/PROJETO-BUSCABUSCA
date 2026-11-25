@@ -984,7 +984,7 @@ ADMIN_HTML = """<!DOCTYPE html>
     <!-- Card 0: Gestão de Contas / Acessos do Buscador (Master Exclusivo) -->
     <div class="card" id="accountsCard">
       <h2>
-        <span>Gestão de Contas · Acessos do O Fornecedor</span>
+        <span>Gestão de Contas · O Fornecedor</span>
         <span style="font-size:12px;color:var(--muted);font-weight:normal;">Apenas <code>admin</code> possui ajuste de preço · todas as demais contas entram com preço puro</span>
       </h2>
       <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end;margin-bottom:16px;">
