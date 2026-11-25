@@ -1,18 +1,23 @@
 {
-  "name": "disparador-fornecedores-pxt",
+  "name": "buscabusca-fornecedores",
   "version": "1.0.0",
-  "description": "Painel Python VPS e Disparador WhatsApp para Fornecedores PXT",
+  "description": "BuscaBusca — comparação de preços e monitoramento de listas de fornecedores",
   "type": "module",
   "main": "whatsapp_bridge.js",
   "scripts": {
+    "postinstall": "node scripts/patch-baileys.cjs",
     "start": "python3 -u painel.py",
-    "bridge": "node whatsapp_bridge.js"
+    "bridge": "node whatsapp_bridge.js",
+    "test": "python3 -m unittest discover -s tests -v && node --test tests/*.test.cjs",
+    "preview": "python3 -u scripts/preview.py"
   },
   "dependencies": {
-    "@whiskeysockets/baileys": "^7.0.0-rc14",
-    "axios": "^1.21.1",
+    "@whiskeysockets/baileys": "7.0.0-rc14",
     "express": "^4.22.3",
-    "http-proxy": "^1.18.1",
-    "qrcode": "^1.5.3"
+    "qrcode": "^1.5.3",
+    "pino": "9.14.0"
+  },
+  "engines": {
+    "node": ">=20"
   }
 }

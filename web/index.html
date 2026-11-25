@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f7f9fc">
+  <title>BuscaBusca · Catálogo de fornecedores</title>
+  <link rel="stylesheet" href="/catalog.css">
+  <script type="module" src="/catalog-ui.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/" aria-label="BuscaBusca — início">
+      <svg viewBox="0 0 24 28" aria-hidden="true"><path d="M16.7 4.4c1-1.2 1.6-2.6 1.5-4.1-1.5.1-3.3 1-4.3 2.2-.9 1-1.7 2.6-1.5 4 1.7.1 3.3-.8 4.3-2.1ZM20.9 14.5c0-3.3 2.7-4.8 2.8-4.9-1.6-2.3-4-2.6-4.9-2.7-2.1-.2-4.1 1.2-5.2 1.2-1 0-2.7-1.2-4.5-1.2C6.8 7 4.5 8.4 3.3 10.4.8 14.8 2.6 21.4 5 24.9c1.2 1.7 2.5 3.5 4.3 3.4 1.7-.1 2.4-1.1 4.5-1.1 2 0 2.7 1.1 4.5 1 1.9 0 3.1-1.7 4.2-3.4 1.4-1.9 2-3.8 2-3.9-.1 0-3.6-1.4-3.6-5.4Z" transform="translate(-1 -1) scale(.9)"/></svg>
+    </a>
+  </header>
+  <main class="catalog" aria-label="Catálogo de fornecedores">
+    <nav class="category-bar" id="categories" aria-label="Categorias de produtos"></nav>
+    <section class="section-head" aria-label="Resumo da categoria">
+      <div class="section-title-row">
+        <h1 class="section-title" id="sectionTitle">iPhones Novos</h1>
+      </div>
+      <div class="section-meta-row">
+        <span class="section-summary" id="sectionSummary">Carregando modelos…</span>
+        <label class="per-page-label">
+          <span>Por página</span>
+          <select id="perPageSelect" aria-label="Modelos por página">
+            <option value="30">30</option>
+            <option value="60" selected>60</option>
+            <option value="120">120</option>
+            <option value="9999">Todos</option>
+          </select>
+        </label>
+      </div>
+    </section>
+    <div class="catalog-sections" id="catalogGrid" aria-live="polite" aria-busy="true"></div>
+    <button class="more-button" id="loadMore" hidden>Mostrar mais produtos</button>
+  </main>
+  <footer class="catalog-footer">
+    <div class="footer-info"><span id="catalogStatus" role="status">Carregando ofertas…</span><span>Menores preços entre as listas capturadas. Confirme estoque e condições com o fornecedor.</span></div>
+    <a class="admin-link" href="/admin">Central de fornecedores ↗</a>
+  </footer>
+  <dialog id="supplierDialog" aria-labelledby="supplierTitle">
+    <div class="modal-header"><div><h2 id="supplierTitle"></h2><p class="modal-subtitle" id="supplierSubtitle"></p></div><button class="close-button" data-close="supplierDialog" aria-label="Fechar fornecedores"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div>
+    <div class="modal-body"><div id="supplierList"></div><p class="modal-explainer">Ofertas ordenadas do menor para o maior preço. A lista compara o mesmo modelo, capacidade e condição; cada linha informa a cor. Contato disponível somente quando há um telefone válido.</p></div>
+  </dialog>
+</body>
+</html>
