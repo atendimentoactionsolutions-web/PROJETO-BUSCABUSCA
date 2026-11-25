@@ -268,10 +268,10 @@ test('all categories sort strictly from newest generation to oldest including Wa
     {...base,categoria:'iPad',modelo:'IPAD PRO M5 13 WI-FI',capacidade:'512GB',cor:'PRETO',preco:9550},
   ]));
   assert.deepEqual(ipads.map(modelFamilyLabel),[
-    'iPad Pro M5',
-    'iPad Air M4',
-    'iPad Pro M4',
-    'iPad Mini 6',
+    'iPad Pro M5 Wi-Fi',
+    'iPad Air M4 Wi-Fi',
+    'iPad Pro M4 Wi-Fi',
+    'iPad Mini 6 Wi-Fi',
   ]);
 
   const cpo=sortCatalogForDisplay(groupProducts([
@@ -339,16 +339,17 @@ test('accessories reject storage and preserve iPad keyboard compatibility',async
   assert.ok(groups.every(group=>group.model.toLowerCase().includes('keyboard')));
 });
 
-test('repeated iPad storage units and interleaved variants share one family heading',async()=>{
+test('repeated iPad storage units share their Wi-Fi heading while Wi-Fi + Cellular gets its own heading',async()=>{
   const {groupProducts,catalogSections}=await import('../web/catalog.js');
   const ipad={...base,categoria:'iPad',modelo:'IPAD 11 A16 WI-FI',cor:'ROSA'};
   const groups=groupProducts([ipad,{...ipad,modelo:'IPAD 11 A16 GB WI-FI',fornecedor:'Beta'},
     {...ipad,capacidade:'256GB'}, {...ipad,modelo:'IPAD 11TH WIFI + CELLULAR'}]);
   assert.equal(groups.length,3);
   assert.equal(groups.find(g=>g.capacity==='128 GB'&&!g.model.includes('Cellular')).offers.length,2);
-  const sections=catalogSections([groups[0],{...groups[0],model:'iPad Mini 7'},...groups.slice(1)]);
-  assert.equal(sections.length,2);
-  assert.equal(sections[0].items.length,3);
+  const sections=catalogSections([groups[0],{...groups[0],model:'iPad Mini 7 Wi-Fi'},...groups.slice(1)]);
+  assert.equal(sections.length,3);
+  assert.equal(sections.find(s=>s.family==='iPad 11 A16 Wi-Fi').items.length,2);
+  assert.equal(sections.find(s=>s.family==='iPad 11 A16 Wi-Fi + Cellular').items.length,1);
 });
 
 test('Series 11 GPS separates rose gold from titanium gold',async()=>{
@@ -410,4 +411,37 @@ test('supplier and reference iPad names group by generation and screen size',asy
     assert.equal(groups.length,1);
     assert.equal(groups[0].offers.length,offers.length);
   }
+});
+
+test('separates iPad Wi-Fi and Wi-Fi + Cellular into distinct ordered sections for all models', async () => {
+  const { groupProducts, sortCatalogForDisplay, catalogSections } = await import('../web/catalog.js');
+  const rows = [
+    { ...base, categoria: 'iPad', modelo: 'IPAD PRO 13 INCH M5 WIFI+CELLULAR 2025 5G', capacidade: '512GB', cor: 'PRETO', preco: 11200 },
+    { ...base, categoria: 'iPad', modelo: 'IPAD PRO 11 INCH M5 WIFI', capacidade: '256GB', cor: 'PRATA', preco: 7900 },
+    { ...base, categoria: 'iPad', modelo: 'IPAD PRO M5 13 WI-FI', capacidade: '512GB', cor: 'PRETO', preco: 9600 },
+    { ...base, categoria: 'iPad', modelo: 'IPAD PRO 11 INCH M5 WIFI + CELULAR 2025 5G', capacidade: '256GB', cor: 'PRATA', preco: 9300 },
+    { ...base, categoria: 'iPad', modelo: 'IPAD AIR 13 INCH M4 WIFI + CELLULAR 2025 5G', capacidade: '128GB', cor: 'AZUL', preco: 8200 },
+    { ...base, categoria: 'iPad', modelo: 'IPAD AIR 11 INCH M4 WIFI', capacidade: '128GB', cor: 'ESTELAR', preco: 5200 },
+    { ...base, categoria: 'iPad', modelo: 'IPAD AIR 13 INCH M4 WIFI', capacidade: '128GB', cor: 'AZUL', preco: 7100 },
+    { ...base, categoria: 'iPad', modelo: 'IPAD AIR 11 INCH M4 WIFI + CELLULAR 2025 5G', capacidade: '128GB', cor: 'AZUL', preco: 6500 },
+    { ...base, categoria: 'iPad', modelo: 'IPAD 11TH WIFI', capacidade: '128GB', cor: 'AZUL', preco: 3000 },
+    { ...base, categoria: 'iPad', modelo: 'IPAD 11TH WIFI + CELLULAR', capacidade: '128GB', cor: 'ROSA', preco: 4199 },
+    { ...base, categoria: 'iPad', modelo: 'IPAD MINI 7 WIFI', capacidade: '128GB', cor: 'ROXO', preco: 3800 },
+    { ...base, categoria: 'iPad', modelo: 'IPAD MINI 7 5G', capacidade: '128GB', cor: 'ROXO', preco: 4700 },
+  ];
+  const sections = catalogSections(sortCatalogForDisplay(groupProducts(rows)));
+  assert.deepEqual(sections.map(s => s.family), [
+    'iPad Pro M5 Wi-Fi',
+    'iPad Pro M5 Wi-Fi + Cellular',
+    'iPad Air M4 Wi-Fi',
+    'iPad Air M4 Wi-Fi + Cellular',
+    'iPad 11 A16 Wi-Fi',
+    'iPad 11 A16 Wi-Fi + Cellular',
+    'iPad Mini 7 Wi-Fi',
+    'iPad Mini 7 Wi-Fi + Cellular',
+  ]);
+  assert.deepEqual(sections[0].items.map(i => i.model), ['iPad Pro M5 13" Wi-Fi', 'iPad Pro M5 11" Wi-Fi']);
+  assert.deepEqual(sections[1].items.map(i => i.model), ['iPad Pro M5 13" Wi-Fi + Cellular', 'iPad Pro M5 11" Wi-Fi + Cellular']);
+  assert.deepEqual(sections[2].items.map(i => i.model), ['iPad Air M4 13" Wi-Fi', 'iPad Air M4 11" Wi-Fi']);
+  assert.deepEqual(sections[3].items.map(i => i.model), ['iPad Air M4 13" Wi-Fi + Cellular', 'iPad Air M4 11" Wi-Fi + Cellular']);
 });

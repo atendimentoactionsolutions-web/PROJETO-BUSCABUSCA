@@ -760,6 +760,66 @@ def canonicalize_apple_model(model_name, full_line=""):
                 return f"AIRPODS {gen} ANC" if is_anc else f"AIRPODS {gen}"
             return f"AIRPODS {gen}"
 
+    # 6. iPads (separa explicitamente WI-FI vs WI-FI + CELLULAR em todos os modelos)
+    if "IPAD" in u:
+        src = f"{u} {full_line.upper()}"
+        has_cpo = bool(re.search(r"\bCPO\b", u))
+        is_cellular = bool(re.search(
+            r"(?:\+|WI-?FI\s*\+?)\s*CEL(?:L(?:ULAR)?|ULAR)?\b|\b(?:CELLULAR|CELULAR|5G|4G|LTE|E-?SIM|COM\s+CHIP)\b",
+            src,
+        ))
+        conn = "WI-FI + CELLULAR" if is_cellular else "WI-FI"
+        p = u
+        p = re.sub(r"\bWIFI\b", "WI-FI", p)
+        p = re.sub(r"\bWI-FI\s*(?:\+?\s*(?:CEL(?:L(?:ULAR)?|ULAR)?|5G|4G|LTE))?\b", " ", p)
+        p = re.sub(r"\b(?:CELLULAR|CELULAR|5G|4G|LTE|E-?SIM|COM\s+CHIP|202[0-9]|CPO|LLA|LL/A|A\d{4})\b", " ", p)
+        p = re.sub(r"\+\s*CEL(?:L)?\b", " ", p)
+        p = re.sub(r"\+", " ", p)
+        p = re.sub(r"\b(12)\s+9(?=\s*-?\s*INCH\b)", r"\1.9", p)
+        p = re.sub(r"\b(\d+)(?:ST|ND|RD|TH)\b(?:\s+(?:GENERATION|GEN)\b)?", r"\1", p)
+        p = re.sub(r"\b(\d+)\s*(?:GERA[CÇ][AÃ]O|GERACAO|GER)\b", r"\1", p)
+        p = re.sub(r"\s+", " ", p).strip()
+
+        def _extract_ipad_inch(text):
+            tm = re.search(r"\bT(11|13)\b", text)
+            if tm:
+                return tm.group(1)
+            em = re.search(r'\b(8\.3|10\.9|11|12\.9|13)(?:\s*-?\s*INCH\b|")', text)
+            if em:
+                return em.group(1)
+            bm = re.search(r"\b(10\.9|11|12\.9|13)\b", text)
+            return bm.group(1) if bm else ""
+
+        cpo_suffix = " CPO" if has_cpo else ""
+        if re.search(r"\bIPAD\s+PRO\b", p):
+            chip_m = re.search(r"\b(M[1-9])\b", p)
+            inch = _extract_ipad_inch(re.sub(r"\bIPAD\s+PRO\b", " ", p))
+            parts = ["IPAD PRO", chip_m.group(1) if chip_m else "", f'{inch}"' if inch else "", conn]
+            return " ".join(x for x in parts if x) + cpo_suffix
+        if re.search(r"\bIPAD\s+AIR\b", p):
+            chip_m = re.search(r"\b(M[1-9])\b", p)
+            if chip_m:
+                inch = _extract_ipad_inch(re.sub(r"\bIPAD\s+AIR\b", " ", p))
+                parts = ["IPAD AIR", chip_m.group(1), f'{inch}"' if inch else "", conn]
+                return " ".join(x for x in parts if x) + cpo_suffix
+            gen_m = re.search(r"\bIPAD\s+AIR\s+([1-9])\b", p)
+            if gen_m:
+                return f"IPAD AIR {gen_m.group(1)} {conn}{cpo_suffix}"
+            return f"{p} {conn}{cpo_suffix}"
+        if re.search(r"\bIPAD\s+MINI\b", p):
+            if re.search(r"\b(?:7|A17)\b", p):
+                return f"IPAD MINI 7 {conn}{cpo_suffix}"
+            gen_m = re.search(r"\bIPAD\s+MINI\s+([1-9])\b", p)
+            if gen_m:
+                return f"IPAD MINI {gen_m.group(1)} {conn}{cpo_suffix}"
+            return f"{p} {conn}{cpo_suffix}"
+        if re.search(r"\bIPAD\s+(?:11\b|A16\b)", p) and not re.search(r"\b\d+GB\b", p):
+            return f"IPAD 11 A16 {conn}{cpo_suffix}"
+        gen_m = re.search(r"\bIPAD\s+(9|10|12)\b", p)
+        if gen_m:
+            return f"IPAD {gen_m.group(1)} {conn}{cpo_suffix}"
+        return f"{p} {conn}{cpo_suffix}"
+
     return u
 
 

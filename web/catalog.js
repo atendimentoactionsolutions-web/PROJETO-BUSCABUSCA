@@ -547,13 +547,16 @@ function identityOf(offer) {
     }
   } else if (/\bipad\b/.test(model)) {
     const rawLine = normalize(offer.linhaOriginal || '');
-    const isCellular = /\b(?:celular|cellular|5g|lte)\b/.test(`${model} ${rawLine}`);
+    const connSource = `${model} ${rawLine}`;
+    const isCellular = /(?:\+|wi-?fi\s*\+?)\s*cel(?:l(?:ular)?|ular)?\b|\b(?:celular|cellular|5g|4g|lte|e-?sim|com\s+chip)\b/.test(connSource);
     model = model
       .replace(/\b(?:gb|tb)\b/g, ' ')
       .replace(/\s+/g, ' ')
       .replace(/\bwifi\b/g, 'wi-fi')
-      .replace(/\bwi-fi\s*(?:\+?\s*(?:celular|cellular))?\b/g, ' ')
-      .replace(/\b(?:celular|cellular|5g|lte|202[0-9]|cpo|lla|ll\/a|a\d{4})\b/g, ' ')
+      .replace(/\bwi-fi\s*(?:\+?\s*(?:cel(?:l(?:ular)?|ular)?|5g|4g|lte))?\b/g, ' ')
+      .replace(/\b(?:celular|cellular|5g|4g|lte|e-?sim|com\s+chip|202[0-9]|cpo|lla|ll\/a|a\d{4})\b/g, ' ')
+      .replace(/\+\s*(?:cel(?:l)?)\b/g, ' ')
+      .replace(/\+/g, ' ')
       .replace(/\b(\d+)(?:st|nd|rd|th)\b(?:\s+(?:generation|gen)\b)?/g, '$1')
       .replace(/\b(\d+)\s+(?:geracao|generation)\b/g, '$1')
       .replace(/\b(12)\s+9(?=\s*-?\s*inch\b)/g, '$1.9')
@@ -763,7 +766,7 @@ function rankDeviceGroup(catKey, group, m, cond, cap) {
     const screenMatch = m.match(/\b(13|12\.9|11|10\.9|8\.3)"/);
     const screen = screenMatch ? parseFloat(screenMatch[1]) : 0;
     const cell = /cellular/.test(m) ? 2 : 1;
-    return [3, -wave, line, -screen, cell, -cap, 0, m];
+    return [3, -wave, line, cell, -screen, -cap, 0, m];
   }
 
   // Apple Watch: geração/lançamento mais recente primeiro (Ultra 4 -> S12 -> Ultra 3 -> S11 -> SE 3 -> S10 -> Ultra 2 -> SE 2 -> SE)
@@ -871,7 +874,9 @@ export function modelFamilyLabel(group) {
   if (cat === 'mac' || cat === 'imac' || /\b(MacBook|iMac|Mac\s+(?:Mini|Studio))\b/i.test(model)) {
     label = model.replace(/\s+\d+(?:\.\d+)?"$/i, '').trim();
   } else if (cat === 'ipad' || /\biPad\b/i.test(model)) {
-    label = model.replace(/\s+\d+(?:\.\d+)?"/i, '').replace(/\s+Wi-Fi(?:\s*\+\s*Cellular)?$/i, '').trim();
+    const isCell = /\bWi-Fi\s*\+\s*Cellular\b/i.test(model);
+    const baseIpad = model.replace(/\s+\d+(?:\.\d+)?"/i, '').replace(/\s+Wi-Fi(?:\s*\+\s*Cellular)?$/i, '').trim();
+    label = `${baseIpad} ${isCell ? 'Wi-Fi + Cellular' : 'Wi-Fi'}`;
   } else if (cat === 'watch' || /\bWatch\b/i.test(model)) {
     label = model.replace(/\s+GPS(?:\s*\+\s*Cellular)?$/i, '').trim();
   } else if (cat === 'airpods' || /\b(?:AirPods|EarPods)\b/i.test(model)) {

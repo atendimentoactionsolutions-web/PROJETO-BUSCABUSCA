@@ -463,3 +463,34 @@ class ReviewTests(unittest.TestCase):
         vis, held = public_price_review(peers)
         self.assertEqual(len(held), 1)
         self.assertEqual(held[0][0]['fornecedor'], 'D')
+
+    def test_ipad_wifi_and_cellular_canonical_separation(self):
+        import apple_reference
+        from parser_listas import canonicalize_apple_model
+        from price_guardian import validate_product
+
+        cases = [
+            ('IPAD PRO 13 INCH M5 WIFI', 'IPAD PRO M5 13" WI-FI'),
+            ('IPAD PRO M5 T13', 'IPAD PRO M5 13" WI-FI'),
+            ('IPAD PRO 13 INCH M5 WIFI+CELLULAR 2025 5G', 'IPAD PRO M5 13" WI-FI + CELLULAR'),
+            ('IPAD PRO 13 INCH M5 WIFI + CELULAR 2025 5G', 'IPAD PRO M5 13" WI-FI + CELLULAR'),
+            ('IPAD PRO 11 INCH M5 WIFI', 'IPAD PRO M5 11" WI-FI'),
+            ('IPAD PRO 11 INCH M5 WIFI+CELLULAR 2025 5G', 'IPAD PRO M5 11" WI-FI + CELLULAR'),
+            ('IPAD AIR 13 INCH M4 WIFI', 'IPAD AIR M4 13" WI-FI'),
+            ('IPAD AIR 13 INCH M4 WIFI + CELLULAR 2025 5G', 'IPAD AIR M4 13" WI-FI + CELLULAR'),
+            ('IPAD AIR 11 INCH M4 WIFI', 'IPAD AIR M4 11" WI-FI'),
+            ('IPAD AIR 11 INCH M4 WIFI + CELLULAR 2025 5G', 'IPAD AIR M4 11" WI-FI + CELLULAR'),
+            ('IPAD 11TH WIFI', 'IPAD 11 A16 WI-FI'),
+            ('IPAD 11TH WIFI + CELLULAR', 'IPAD 11 A16 WI-FI + CELLULAR'),
+            ('IPAD MINI 7 WIFI', 'IPAD MINI 7 WI-FI'),
+            ('IPAD MINI 7 5G', 'IPAD MINI 7 WI-FI + CELLULAR'),
+        ]
+        for raw, expected in cases:
+            got = canonicalize_apple_model(raw)
+            self.assertEqual(got, expected, f'raw={raw}')
+            self.assertIsNot(apple_reference.model_status(got), False, f'apple_reference rejected {got}')
+            ok, reason, _ = validate_product(
+                {'modelo': got, 'capacidade': '256GB', 'cor': 'AZUL' if 'PRO' not in got else 'PRATA', 'preco': 6500 if 'PRO' in got else 4200, 'condicao': 'Novo / Lacrado'},
+                allow_seminovo=True, log_anomalies=False,
+            )
+            self.assertTrue(ok, f'validate_product failed for {got}: {reason}')
