@@ -44,7 +44,7 @@ for attempt in $(seq 1 30); do
   if curl -fsS http://127.0.0.1:3050/api/products > "$backup/health.json"; then break; fi
   sleep 1
 done
-curl -fsS http://127.0.0.1:3050/ | python3 -c 'import sys; assert "BuscaBusca" in sys.stdin.read()'
+curl -fsS http://127.0.0.1:3050/login | python3 -c 'import sys; assert "O Fornecedor" in sys.stdin.read()'
 systemctl is-active --quiet disparador-pxt
 trap - ERR
 printf 'DEPLOY_OK backup=%s\n' "$backup"

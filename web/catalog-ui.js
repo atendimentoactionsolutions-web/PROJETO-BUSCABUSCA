@@ -213,7 +213,7 @@ async function refresh() {
         else $('supplierDialog').close();
       }
     }
-    $('catalogStatus').textContent=`BuscaBusca · ${catalog.length} ${catalog.length===1?'produto':'produtos'} · Atualizado às ${new Date().toLocaleTimeString('pt-BR')}`;
+    $('catalogStatus').textContent=`O Fornecedor · ${catalog.length} ${catalog.length===1?'produto':'produtos'} · Atualizado às ${new Date().toLocaleTimeString('pt-BR')}`;
   } catch(error) {
     $('catalogStatus').textContent='Sem atualização no momento · tentando novamente';
     if (!lastPayload) renderCatalog(true);

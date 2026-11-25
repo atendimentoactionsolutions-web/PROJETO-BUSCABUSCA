@@ -729,7 +729,7 @@ ADMIN_HTML = """<!DOCTYPE html>
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>BuscaBusca · Central de fornecedores</title>
+  <title>O Fornecedor · Central Administrativa</title>
   <style>
     :root {
       --bg: #0b1120;
@@ -967,7 +967,7 @@ ADMIN_HTML = """<!DOCTYPE html>
   <div class="container">
     <header>
       <div>
-        <h1>Central de fornecedores</h1>
+        <h1>O Fornecedor · Central Administrativa</h1>
         <div style="font-size:13px;color:var(--muted);margin-top:4px;">
           <strong>Trava Manual Ativa:</strong> Nenhum disparo é feito sem sua autorização. Os envios dependem da conexão, da autorização do contato e das travas da conta.
         </div>
@@ -984,7 +984,7 @@ ADMIN_HTML = """<!DOCTYPE html>
     <!-- Card 0: Gestão de Contas / Acessos do Buscador (Master Exclusivo) -->
     <div class="card" id="accountsCard">
       <h2>
-        <span>Gestão de Contas · Acessos do Buscador</span>
+        <span>Gestão de Contas · Acessos do O Fornecedor</span>
         <span style="font-size:12px;color:var(--muted);font-weight:normal;">Apenas <code>admin</code> possui ajuste de preço · todas as demais contas entram com preço puro</span>
       </h2>
       <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end;margin-bottom:16px;">
