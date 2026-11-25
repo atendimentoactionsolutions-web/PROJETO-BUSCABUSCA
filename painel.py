@@ -22,6 +22,7 @@ if hasattr(time, "tzset"):
 
 import daily_review
 import apple_reference
+import color_guardian
 from parser_listas import parse_supplier_message
 from price_guardian import (
     offer_color, public_price_review, review_quoted_price, validate_product,
@@ -1650,6 +1651,7 @@ class PanelHandler(BaseHTTPRequestHandler):
                     "totalSuppliers": len(forns),
                     "dfuActive": True,
                     "lastSweep": last_guardian_sweep,
+                    "lastColorAudit": last_color_audit,
                 }, cors=True)
                 return
 
@@ -2279,12 +2281,77 @@ def guardian_sweep_worker():
         time.sleep(GUARDIAN_SWEEP_INTERVAL_SECONDS)
 
 
+COLOR_AUDIT_INTERVAL_SECONDS = 180
+last_color_audit = {"checked": None, "analyzed": 0, "validAfter": 0, "corrected": 0, "removed": 0, "deduplicated": 0, "learnedModels": [], "actions": []}
+
+
+def perform_color_guardian_audit(log_anomalies=True, allow_learn=True):
+    """Robô autônomo de cores: corrige cor de pulseira vs caixa, bloqueia cores inexistentes e aprende novos modelos."""
+    global last_color_audit
+    with products_lock:
+        hoje = get_today_str()
+        atuais_todos = load_produtos(only_today=False)
+        atuais = [
+            p for p in atuais_todos
+            if p.get("data") == hoje and str(p.get("hora", "00:00:00")) >= "06:00:00"
+        ]
+        if not atuais:
+            report = {
+                "checked": time.strftime("%d/%m/%Y %H:%M:%S"),
+                "changed": False,
+                "analyzed": 0,
+                "validAfter": 0,
+                "corrected": 0,
+                "removed": 0,
+                "deduplicated": 0,
+                "learnedModels": [],
+                "actions": [],
+            }
+            last_color_audit = report
+            return report
+
+        healed, report = color_guardian.run_color_guardian_sweep(
+            atuais, offer_key_fn=offer_key, log_anomalies=log_anomalies, allow_learn=allow_learn
+        )
+        if report["changed"]:
+            save_produtos(healed)
+            add_panel_log(
+                f"[ROBÔ DE CORES] 🎨 {report['analyzed']} ofertas auditadas · "
+                f"{report['corrected']} corrigidas · {report['removed']} cores inválidas removidas · "
+                f"{report['deduplicated']} duplicatas limpas -> {report['validAfter']} válidas."
+            )
+        else:
+            add_panel_log(
+                f"[ROBÔ DE CORES] ✅ Auditoria limpa: {report['analyzed']} ofertas conferidas, 0 cores inexistentes."
+            )
+        if report.get("learnedModels"):
+            add_panel_log(f"[ROBÔ DE CORES] 🧠 Cores oficiais aprendidas para: {', '.join(report['learnedModels'])}")
+        last_color_audit = report
+        try:
+            atomic_json_write(color_guardian.COLOR_AUDIT_REPORT_FILE, report)
+        except OSError as exc:
+            print(f"[ROBÔ DE CORES] Falha ao gravar relatório: {type(exc).__name__}", flush=True)
+        return report
+
+
+def color_guardian_worker():
+    """Robô autônomo dedicado a auditar e aprender cores oficiais a cada 3 minutos."""
+    time.sleep(8)
+    while True:
+        try:
+            perform_color_guardian_audit(log_anomalies=True, allow_learn=True)
+        except Exception as exc:
+            print(f"[ROBÔ DE CORES] Erro na auditoria periódica: {type(exc).__name__}: {exc}", flush=True)
+        time.sleep(COLOR_AUDIT_INTERVAL_SECONDS)
+
+
 def main():
     reset_thread.start()
     load_config()
     cleanup_old_products_on_start()
     threading.Thread(target=catalog_monitor_worker, daemon=True).start()
     threading.Thread(target=guardian_sweep_worker, daemon=True).start()
+    threading.Thread(target=color_guardian_worker, daemon=True).start()
     threading.Thread(target=refresh_model_reference, daemon=True).start()
     threading.Thread(target=live_review_worker, daemon=True).start()
     threading.Thread(target=daily_review_worker, daemon=True).start()

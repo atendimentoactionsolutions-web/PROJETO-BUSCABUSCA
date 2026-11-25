@@ -215,8 +215,20 @@ export function colorKey(value, modelName = '', rawLine = '') {
       let c = base;
       if (['preto', 'black', 'black titanium', 'titanio preto'].includes(base)) c = 'black titanium';
       else if (/^natural/.test(base) || ['natural titanium', 'titanio natural', 'prata', 'silver'].includes(base)) c = 'natural titanium';
-      else if (['burgundy', 'vermelho', 'red'].includes(base)) c = 'burgundy';
-      return pickAllowed(c, /\bultra\s*4\b/.test(m) ? ['natural titanium', 'black titanium', 'burgundy'] : ['natural titanium', 'black titanium']);
+      else {
+        // Nunca exibir cor de pulseira (ex: Burgundy Alpine Loop) como cor da caixa do Watch Ultra; recupera da linha original se houver caixa explícita
+        const raw = normalize(rawLine).replace(/\([^)]*(?:loop|band|pulseira)[^)]*\)/g, ' ')
+          .replace(/\b(?:burgundy|bordo|indigo|orange|green|blue|beige|tan|charcoal|terracotta|yellow|pink|purple|red)?\s*(?:alpine|alp|trail|ocean|milanese|sport)\s*(?:loop|band)\b/g, ' ');
+        if (/\b(?:black\s*ti|ti\s*black|caixa\s+pret[ao]|black\s+titanium|preto\s+titanio|black|preto)\b/.test(raw)) c = 'black titanium';
+        else if (/\b(?:natural\s*ti|ti\s*natural|caixa\s+natural|natural\s+titanium|natural)\b/.test(raw)) c = 'natural titanium';
+      }
+      return pickAllowed(c, ['natural titanium', 'black titanium']);
+    }
+    if (/\bse\s*3\b/.test(m)) {
+      let c = base;
+      if (['midnight', 'meia-noite', 'preto', 'black'].includes(base)) c = 'midnight';
+      else if (['starlight', 'estelar', 'branco', 'white'].includes(base)) c = 'starlight';
+      return pickAllowed(c, ['midnight', 'starlight']);
     }
     if (/\bse\b/.test(m)) {
       let c = base;
@@ -224,6 +236,17 @@ export function colorKey(value, modelName = '', rawLine = '') {
       else if (['starlight', 'estelar', 'branco', 'white'].includes(base)) c = 'starlight';
       else if (['prata', 'silver'].includes(base)) c = 'silver';
       return pickAllowed(c, ['midnight', 'starlight', 'silver']);
+    }
+    if (/\b(?:s|series?\s*)12\b/.test(m)) {
+      let c = base;
+      if (['jet black', 'preto', 'black', 'midnight', 'meia-noite', 'space black', 'preto espacial'].includes(base)) c = 'jet black';
+      else if (['space gray', 'gray', 'cinza espacial'].includes(base)) c = 'space gray';
+      else if (['dark bronze', 'bronze'].includes(base)) c = 'bronze';
+      else if (['light gold', 'radiant gold', 'gold', 'dourado'].includes(base)) c = 'dourado';
+      else if (/^natural/.test(base) || ['natural titanium', 'titanio natural'].includes(base)) c = 'natural titanium';
+      else if (['pearl white', 'branco', 'white'].includes(base)) c = 'branco';
+      else if (['night blue', 'azul', 'blue'].includes(base)) c = 'azul';
+      return pickAllowed(c, ['jet black', 'space gray', 'bronze', 'dourado', 'natural titanium', 'branco', 'azul']);
     }
     if (/\b(?:s|series?\s*)11\b/.test(m)) {
       const finishes = {'rosa':'rose gold','rosa gold':'rose gold','ouro rosa':'rose gold','preto':'jet black',

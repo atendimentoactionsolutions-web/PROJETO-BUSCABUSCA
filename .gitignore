@@ -37,6 +37,8 @@ modelos_pendentes_apple.json
 revisao_listas/
 ultima_limpeza_catalogo.json
 ultima_vistoria_5min.json
+ultima_auditoria_cores.json
+apple_colors_cache.json
 api_v1_key.txt
 ancoras_mensagens.json
 *.bak*

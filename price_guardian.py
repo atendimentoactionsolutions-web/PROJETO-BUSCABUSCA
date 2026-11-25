@@ -617,16 +617,13 @@ MODEL_COLOR_RULES = [
      {"preto": "CINZA ESPACIAL", "branco": "PRATA"},
      {"CINZA ESPACIAL", "PRATA"}),
 
-    # Watch
-    (re.compile(r"\bAPPLE\s+WATCH\s+ULTRA\s*4\b", re.I),
-     {"prata": "NATURAL TITÂNIO", "preto titânio": "PRETO", "preto titanio": "PRETO"},
-     {"NATURAL TITÂNIO", "PRETO", "BURGUNDY"}),
+    # Watch — APENAS cores oficiais da CAIXA (nunca cor de pulseira!)
     (re.compile(r"\bAPPLE\s+WATCH\s+ULTRA\b", re.I),
-     {"prata": "NATURAL TITÂNIO", "preto titânio": "PRETO", "preto titanio": "PRETO"},
+     {"prata": "NATURAL TITÂNIO", "natural": "NATURAL TITÂNIO", "preto titânio": "PRETO", "preto titanio": "PRETO"},
      {"NATURAL TITÂNIO", "PRETO"}),
     (re.compile(r"\bAPPLE\s+WATCH\s+S12\b", re.I),
-     {"meia-noite": "PRETO"},
-     {"PRETO", "CINZA ESPACIAL", "PRATA", "BRONZE", "DOURADO", "ROSA"}),
+     {"meia-noite": "PRETO", "preto espacial": "PRETO", "preto brilhante": "PRETO"},
+     {"PRETO", "CINZA ESPACIAL", "BRONZE", "DOURADO", "NATURAL TITÂNIO", "BRANCO", "AZUL"}),
     (re.compile(r"\bAPPLE\s+WATCH\s+S11\b.*\bCELLULAR\b", re.I),
      {}, {"PRETO", "CINZA ESPACIAL", "PRATA", "ROSA", "DOURADO", "NATURAL TITÂNIO", "ARDÓSIA"}),
     (re.compile(r"\bAPPLE\s+WATCH\s+S11\b", re.I),
@@ -634,6 +631,9 @@ MODEL_COLOR_RULES = [
     (re.compile(r"\bAPPLE\s+WATCH\s+S(?:9|10)\b", re.I),
      {},
      {"PRETO", "CINZA ESPACIAL", "PRATA", "ROSA", "DOURADO", "NATURAL TITÂNIO", "ESTELAR", "MEIA-NOITE", "VERMELHO"}),
+    (re.compile(r"\bAPPLE\s+WATCH\s+SE\s*3\b", re.I),
+     {"preto": "MEIA-NOITE", "branco": "ESTELAR"},
+     {"MEIA-NOITE", "ESTELAR"}),
     (re.compile(r"\bAPPLE\s+WATCH\s+SE\b", re.I),
      {"preto": "MEIA-NOITE", "branco": "ESTELAR"},
      {"MEIA-NOITE", "ESTELAR", "PRATA"}),
@@ -652,28 +652,11 @@ def _normalize_and_validate_model_color(product, u_model):
             (resolved == "Cor a confirmar" and u_model.startswith("SMART KEYBOARD"))):
         product["cor"] = resolved
         return True, "OK"
-    raw_color = str(product.get("cor") or "").strip()
-    color_key = _ascii_key(raw_color)
-    # Em Watch Ultra, se o parser pegou a cor da pulseira (ex: "Black / Indigo Alpine loop") mas havia BLACK explícito
-    if "APPLE WATCH ULTRA" in u_model and color_key == "azul":
-        raw_line = _ascii_key(product.get("linhaOriginal") or product.get("texto_original") or "")
-        if re.search(r"\b(?:black|preto)\b", raw_line):
-            color_key = "preto"
-
-    canon = _COMMON_COLOR_MAP.get(color_key, color_key.upper())
-    for pat, overrides, allowed in MODEL_COLOR_RULES:
-        if pat.search(u_model):
-            canon_key = _ascii_key(canon)
-            final_color = overrides.get(canon_key, canon)
-            if final_color not in allowed:
-                return False, f"COR_INEXISTENTE_NO_MODELO: {raw_color} em {u_model}"
-            product["cor"] = final_color
-            return True, "OK"
-    known_colors = set().union(*(allowed for _, _, allowed in MODEL_COLOR_RULES))
-    if canon not in known_colors:
-        return False, f"COR_DESCONHECIDA: {raw_color}"
-    product["cor"] = canon
-    return True, "OK"
+    import color_guardian
+    ok, status, _ = color_guardian.audit_and_heal_color(product, u_model=u_model, allow_learn=False)
+    if ok:
+        return True, "OK"
+    return False, status
 
 
 def _check_completeness(product, raw_model):

@@ -445,3 +445,16 @@ test('separates iPad Wi-Fi and Wi-Fi + Cellular into distinct ordered sections f
   assert.deepEqual(sections[2].items.map(i => i.model), ['iPad Air M4 13" Wi-Fi', 'iPad Air M4 11" Wi-Fi']);
   assert.deepEqual(sections[3].items.map(i => i.model), ['iPad Air M4 13" Wi-Fi + Cellular', 'iPad Air M4 11" Wi-Fi + Cellular']);
 });
+
+test('Apple Watch Ultra 4 never displays Burgundy band as case color and heals Black Titanium from raw line', async () => {
+  const { groupProducts } = await import('../web/catalog.js');
+  const groups = groupProducts([
+    { ...base, categoria: 'Apple Watch', modelo: 'APPLE WATCH ULTRA 4 49MM GPS + CELLULAR', capacidade: '49MM', cor: 'PRETO', preco: 5400 },
+    { ...base, categoria: 'Apple Watch', modelo: 'APPLE WATCH ULTRA 4 49MM GPS + CELLULAR', capacidade: '49MM', cor: 'NATURAL TITÂNIO', preco: 5650 },
+    { ...base, categoria: 'Apple Watch', modelo: 'APPLE WATCH ULTRA 4 49MM GPS + CELLULAR', capacidade: '49MM', cor: 'BURGUNDY', preco: 5350, fornecedor: 'ZOI', linhaOriginal: 'BLACK TI BURGUNDY ALP LOOP $5.350,00' },
+    { ...base, categoria: 'Apple Watch', modelo: 'APPLE WATCH ULTRA 4 49MM GPS + CELLULAR', capacidade: '49MM', cor: 'BURGUNDY', preco: 5450, fornecedor: 'SEM_CAIXA', linhaOriginal: 'BURGUNDY ALP LOOP $5.450,00' },
+  ]);
+  assert.equal(groups.length, 1);
+  assert.deepEqual(groups[0].variants.map(v => v.key).sort(), ['black titanium', 'natural titanium']);
+  assert.equal(groups[0].variants.find(v => v.key === 'black titanium').minimum, 5350);
+});

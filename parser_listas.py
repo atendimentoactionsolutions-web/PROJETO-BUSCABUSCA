@@ -440,12 +440,29 @@ def mac_mini_capacity(line):
 
 def extract_color(text):
     upper = text.upper()
-    if "WATCH" in upper or "ULTRA" in upper:
+    has_band_words = bool(re.search(
+        r"\b(?:ALPINE|ALP\.?|TRAIL|OCEAN|MILANESE|MILANESA|SPORT|SOLO|LINK)\s*(?:LOOP|BAND|BRACELET)\b|\bPULSEIRA\b",
+        upper,
+    ))
+    if "WATCH" in upper or "ULTRA" in upper or has_band_words:
+        # Remove descrições de pulseira (incluindo parenteses tipo "(BURGUNDY TRAIL LOOP M/L)") para nunca confundir pulseira com cor da caixa
         upper = re.sub(
-            r"\b(?:INDIGO|ORANGE|GREEN|BLUE|BEIGE|TAN|ALPINE|TRAIL|OCEAN|MILANESE|SPORT)?\s*(?:ALPINE|TRAIL|OCEAN|MILANESE|SPORT)\s*(?:LOOP|BAND)\b",
+            r"\([^)]*\b(?:ALPINE|ALP\.?|TRAIL|OCEAN|MILANESE|MILANESA|SPORT|SOLO|LOOP|BAND|PULSEIRA|BRACELET)\b[^)]*\)",
             " ",
             upper,
         )
+        upper = re.sub(
+            r"\b(?:BURGUNDY|BORD[OÔ]|BORDEAUX|VINHO|INDIGO|ORANGE|LARANJA|GREEN|VERDE|BLUE|AZUL|ANCHOR\s+BLUE|DENIM|NAVY|BEIGE|TAN|CHARCOAL|OLIVE|TERRACOTTA|YELLOW|AMARELO|PINK|ROSA|PLUM|ROXO|PURPLE|RED|VERMELHO|WHITE|BRANCO|BLACK|PRETO)?\s*"
+            r"(?:ALPINE|ALP\.?|TRAIL|OCEAN|MILANESE|MILANESA|SPORT|SOLO|LINK)\s*(?:LOOP|BAND|BRACELET)\b(?:\s*(?:S/M|M/L|P/M|M/G|[SML]))?",
+            " ",
+            upper,
+        )
+        upper = re.sub(r"\bPULSEIRA\b(?:\s+(?:DE\s+)?(?:SILICONE|ESPORTIVA|ALPINE|TRAIL|OCEAN|MILANESA|TECIDO|COURO|\w+)){0,3}", " ", upper)
+        # Se há "BLACK TI" / "TI BLACK" / "NATURAL TI" / "CAIXA PRETA" após limpar pulseira, prioriza a cor da CAIXA
+        if re.search(r"\b(?:BLACK\s*TI(?:TANIUM)?|TI(?:TANIUM)?\s*BLACK|CAIXA\s+PRET[AO])\b", upper):
+            return "PRETO"
+        if re.search(r"\b(?:NATURAL\s*TI(?:TANIUM)?|TI(?:TANIUM)?\s*NATURAL|CAIXA\s+NATURAL)\b", upper):
+            return "NATURAL TITÂNIO"
     for key in sorted(COLOR_ALIASES.keys(), key=len, reverse=True):
         if re.search(r"\b" + re.escape(key) + r"\b", upper):
             return COLOR_ALIASES[key]
