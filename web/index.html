@@ -15,6 +15,7 @@
       <span class="brand-name">O Fornecedor</span>
     </a>
     <div class="topbar-actions">
+      <button type="button" class="topbar-btn" id="btnRefresh" title="Atualizar cotações agora">Atualizar</button>
       <span class="user-pill" id="userBadge" hidden></span>
       <a class="topbar-btn" id="adminNavBtn" href="/admin" hidden>Painel Admin</a>
       <button type="button" class="topbar-btn topbar-logout" id="btnLogout" hidden>Sair</button>
@@ -28,15 +29,18 @@
       </div>
       <div class="section-meta-row">
         <span class="section-summary" id="sectionSummary">Carregando modelos…</span>
-        <label class="per-page-label">
-          <span>Por página</span>
-          <select id="perPageSelect" aria-label="Modelos por página">
-            <option value="30">30</option>
-            <option value="60" selected>60</option>
-            <option value="120">120</option>
-            <option value="9999">Todos</option>
-          </select>
-        </label>
+        <div class="section-controls">
+          <input type="search" id="searchInput" class="search-input" placeholder="Buscar modelo, GB ou cor…" aria-label="Buscar modelo, capacidade ou cor" autocomplete="off">
+          <label class="per-page-label">
+            <span>Por página</span>
+            <select id="perPageSelect" aria-label="Modelos por página">
+              <option value="30">30</option>
+              <option value="60" selected>60</option>
+              <option value="120">120</option>
+              <option value="9999">Todos</option>
+            </select>
+          </label>
+        </div>
       </div>
     </section>
     <div class="catalog-sections" id="catalogGrid" aria-live="polite" aria-busy="true"></div>

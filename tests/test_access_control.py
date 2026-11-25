@@ -1,3 +1,4 @@
+import gzip
 import http.client
 import json
 import os
@@ -140,8 +141,11 @@ class AccessControlTests(unittest.TestCase):
                 h["Content-Type"] = "application/json"
             conn.request(method, path, body=payload, headers=h)
             resp = conn.getresponse()
-            data = resp.read().decode("utf-8")
+            raw = resp.read()
             hdrs = dict(resp.getheaders())
+            if hdrs.get("Content-Encoding") == "gzip":
+                raw = gzip.decompress(raw)
+            data = raw.decode("utf-8")
             conn.close()
             return resp.status, hdrs, data
 
@@ -197,6 +201,28 @@ class AccessControlTests(unittest.TestCase):
                 self.assertEqual(json.loads(raw_pc)["products"][0]["preco"], 7500)
                 st_c_adm, _, _ = req("GET", "/admin", headers={**ext_headers, "Cookie": cookie_lucas})
                 self.assertEqual(st_c_adm, 302)
+
+                # 6. Cache ETag (304 Not Modified), Gzip e invalidação instantânea ao atualizar preço
+                st_g, hdrs_g, _ = req("GET", "/api/products", headers={**ext_headers, "Cookie": cookie_lucas, "Accept-Encoding": "gzip"})
+                self.assertEqual(st_g, 200)
+                self.assertEqual(hdrs_g.get("Content-Encoding"), "gzip")
+                etag1 = hdrs_g.get("ETag")
+                self.assertTrue(etag1)
+                st_304, _, _ = req("GET", "/api/products", headers={**ext_headers, "Cookie": cookie_lucas, "If-None-Match": etag1})
+                self.assertEqual(st_304, 304)
+                # Atualiza preço -> invalida cache na hora e devolve novo valor para lucas (7400) e admin (7500)
+                painel.save_produtos([
+                    dict(modelo="IPHONE 17 PRO MAX", categoria="iPhones", capacidade="256GB", cor="LARANJA",
+                         preco=7400, condicao="Novo / Lacrado", fornecedor="F1", telefone="5511999990001",
+                         data=today, hora="10:05:00"),
+                ])
+                st_new_l, hdrs_new_l, raw_new_l = req("GET", "/api/products", headers={**ext_headers, "Cookie": cookie_lucas, "If-None-Match": etag1})
+                self.assertEqual(st_new_l, 200)
+                self.assertNotEqual(hdrs_new_l.get("ETag"), etag1)
+                self.assertEqual(json.loads(raw_new_l)["products"][0]["preco"], 7400)
+                st_new_a, _, raw_new_a = req("GET", "/api/products", headers={**ext_headers, "Cookie": cookie_admin})
+                self.assertEqual(st_new_a, 200)
+                self.assertEqual(json.loads(raw_new_a)["products"][0]["preco"], 7500.0)
         finally:
             server.shutdown()
             server.server_close()

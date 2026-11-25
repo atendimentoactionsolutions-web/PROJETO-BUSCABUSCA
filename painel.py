@@ -1,3 +1,5 @@
+import gzip
+import hashlib
 import hmac
 import json
 import datetime
@@ -366,6 +368,90 @@ def save_produtos(lista):
         if not lista:
             archive_produtos(load_produtos(only_today=False))
         atomic_json_write(PRODUTOS_FILE, lista)
+        invalidate_products_cache()
+
+
+_products_cache_lock = threading.Lock()
+_products_cache = {
+    "version": 0,
+    "built_at": 0.0,
+    "base_list": None,
+    "dfu_list": None,
+    "wa_status": "CONNECTING",
+    "comm_count": 0,
+    "http_bytes": {},
+}
+PRODUCTS_CACHE_TTL_SECONDS = 30.0
+
+
+def invalidate_products_cache():
+    with _products_cache_lock:
+        _products_cache["version"] += 1
+        _products_cache["built_at"] = 0.0
+        _products_cache["base_list"] = None
+        _products_cache["dfu_list"] = None
+        _products_cache["http_bytes"].clear()
+
+
+def _get_products_http_payload(user):
+    """Retorna (etag, raw_bytes, gz_bytes) em cache de memória, separado por modo (SEM DFU vs COM DFU)."""
+    now = time.monotonic()
+    with _products_cache_lock:
+        stale = (_products_cache["base_list"] is None) or (now - _products_cache["built_at"] > PRODUCTS_CACHE_TTL_SECONDS)
+    if stale:
+        produtos, _ = public_price_review(load_produtos())
+        wa = bridge_status_lite()
+        archived_cnt = int(wa.get("archivedMonitoredCount", 0))
+        comm_cnt = int(wa.get("communitiesCount", 0))
+        base_list = access_control.apply_user_pricing(produtos, False, compute_dfu_delta)
+        dfu_list = access_control.apply_user_pricing(produtos, True, compute_dfu_delta)
+        with _products_cache_lock:
+            _products_cache["built_at"] = time.monotonic()
+            _products_cache["base_list"] = base_list
+            _products_cache["dfu_list"] = dfu_list
+            _products_cache["wa_status"] = wa.get("status", "CONNECTING")
+            _products_cache["comm_count"] = max(comm_cnt, archived_cnt)
+            _products_cache["http_bytes"].clear()
+
+    if user:
+        dfu_flag = bool(user.get("dfu_enabled"))
+        cache_key = ("user", user.get("username"), user.get("role"), user.get("expires_at"), dfu_flag)
+    else:
+        dfu_flag = False
+        cache_key = ("local", "", "", None, False)
+
+    with _products_cache_lock:
+        cached = _products_cache["http_bytes"].get(cache_key)
+        if cached:
+            return cached
+        items = _products_cache["dfu_list"] if dfu_flag else _products_cache["base_list"]
+        if user:
+            payload = {
+                "products": items,
+                "dfuApplied": True,
+                "user": {
+                    "username": user.get("username"),
+                    "name": user.get("name"),
+                    "role": user.get("role"),
+                    "expires_at": user.get("expires_at"),
+                },
+                "whatsappStatus": _products_cache["wa_status"],
+                "communitiesCount": _products_cache["comm_count"],
+            }
+        else:
+            payload = {
+                "products": items,
+                "whatsappStatus": _products_cache["wa_status"],
+                "communitiesCount": _products_cache["comm_count"],
+            }
+        raw_bytes = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+        gz_bytes = gzip.compress(raw_bytes, compresslevel=5)
+        etag = f'"{hashlib.sha1(raw_bytes).hexdigest()[:16]}"'
+        entry = (etag, raw_bytes, gz_bytes)
+        if len(_products_cache["http_bytes"]) >= 64:
+            _products_cache["http_bytes"].clear()
+        _products_cache["http_bytes"][cache_key] = entry
+        return entry
 
 
 def identify_supplier(participant_jid, remote_jid, push_name, group_name, msg_text=""):
@@ -1879,33 +1965,30 @@ class PanelHandler(BaseHTTPRequestHandler):
             if not user and not is_local:
                 self._send_json({"ok": False, "error": "Faça login para acessar o catálogo."}, status=401)
                 return
-            produtos, _ = public_price_review(load_produtos())
-            wa = bridge_status_lite()
-            archived_cnt = int(wa.get("archivedMonitoredCount", 0))
-            comm_cnt = int(wa.get("communitiesCount", 0))
-            if user:
-                # Regra de ouro: DFU aplicado silenciosamente SOMENTE se user["dfu_enabled"] == True (exclusivo `admin`)
-                out_products = access_control.apply_user_pricing(produtos, bool(user.get("dfu_enabled")), compute_dfu_delta)
-                self._send_json({
-                    "products": out_products,
-                    "dfuApplied": True,
-                    "user": {
-                        "username": user.get("username"),
-                        "name": user.get("name"),
-                        "role": user.get("role"),
-                        "expires_at": user.get("expires_at"),
-                    },
-                    "whatsappStatus": wa.get("status", "CONNECTING"),
-                    "communitiesCount": max(comm_cnt, archived_cnt),
-                })
-            else:
-                # Integração interna na VPS via 127.0.0.1 (sem proxy) mantém custo base bruto
-                out_products = access_control.apply_user_pricing(produtos, False, compute_dfu_delta)
-                self._send_json({
-                    "products": out_products,
-                    "whatsappStatus": wa.get("status", "CONNECTING"),
-                    "communitiesCount": max(comm_cnt, archived_cnt),
-                })
+            etag, raw_bytes, gz_bytes = _get_products_http_payload(user)
+            inm = (self.headers.get("If-None-Match") or "").strip()
+            if inm and inm == etag:
+                self.send_response(304)
+                self.send_header("ETag", etag)
+                self.send_header("Cache-Control", "no-cache")
+                self.send_header("Vary", "Accept-Encoding, Cookie")
+                self.end_headers()
+                return
+            accept_enc = (self.headers.get("Accept-Encoding") or "").lower()
+            use_gzip = "gzip" in accept_enc
+            body = gz_bytes if use_gzip else raw_bytes
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Cache-Control", "no-cache")
+            self.send_header("ETag", etag)
+            self.send_header("Vary", "Accept-Encoding, Cookie")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            if use_gzip:
+                self.send_header("Content-Encoding", "gzip")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            if self.command != "HEAD":
+                self.wfile.write(body)
             return
 
         if parsed.path == "/api/accounts":
@@ -2445,7 +2528,7 @@ def daily_review_worker():
                 atomic_json_write(os.path.join(BASE_DIR, "revisao_listas", "ultima_revisao.json"), report)
         except Exception as exc:
             print(f"[RELEITURA] {type(exc).__name__}: {exc}", flush=True)
-        time.sleep(10)
+        time.sleep(600)
 
 
 def catalog_monitor_worker():
@@ -2467,7 +2550,7 @@ def catalog_monitor_worker():
             atomic_json_write(os.path.join(BASE_DIR, "monitor_catalogo_interno.json"), report)
         except OSError as exc:
             print(f"[MONITOR] Falha ao gravar relatório interno: {type(exc).__name__}", flush=True)
-        time.sleep(60)
+        time.sleep(300)
 
 
 API_V1_KEY_FILE = os.path.join(BASE_DIR, "api_v1_key.txt")

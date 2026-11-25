@@ -15,7 +15,8 @@ const CATEGORY_ICONS = {
   seminovos: ['M4 4h16v16H4z','M4 9h16','M9 4v16','M12 15l2 2 4-4']
 };
 let catalog = [], selectedCategory = 'iphone', perPage = 60, limit = 60, refreshing = false, demo = false, serverPriced = false;
-let lastPayload = null, selection = null;
+let lastPayload = null, lastEtag = null, lastFetchedAt = 0, searchQuery = '', selection = null;
+const AUTO_REFRESH_MS = 120000; // 2 minutos (leve para o servidor, sempre atualizado)
 function element(tag, className, content) {
   const node = document.createElement(tag);
   if (className) node.className = className;
@@ -109,16 +110,27 @@ function card(group) {
   }
   return article;
 }
+function normSearch(v) {
+  return String(v || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+}
+function matchesSearch(group, tokens) {
+  if (!tokens.length) return true;
+  const hay = normSearch([group.model, group.capacity, ...group.variants.map(v => v.color)].join(' '));
+  return tokens.every(tok => hay.includes(tok));
+}
 function renderCatalog(error = false) {
   const catInfo = CATEGORIES.find(([id]) => id === selectedCategory);
   if ($('sectionTitle')) $('sectionTitle').textContent = catInfo ? catInfo[1] : 'Produtos';
-  const visible = sortCatalogForDisplay(catalog.filter(group => group.category === selectedCategory));
+  const tokens = normSearch(searchQuery).split(/\s+/).filter(Boolean);
+  const visible = sortCatalogForDisplay(
+    catalog.filter(group => group.category === selectedCategory && matchesSearch(group, tokens))
+  );
   const shown = visible.slice(0, limit);
   const totalVariants = visible.reduce((acc, g) => acc + g.variants.length, 0);
   if ($('sectionSummary')) {
     $('sectionSummary').textContent = visible.length
       ? `Mostrando modelos 1-${shown.length} de ${visible.length} modelos · ${totalVariants} variações`
-      : 'Nenhum modelo nesta categoria';
+      : (tokens.length ? `Nenhum resultado para “${searchQuery.trim()}”` : 'Nenhum modelo nesta categoria');
   }
   $('loadMore').hidden=visible.length<=limit;
   if (!visible.length) {
@@ -192,18 +204,30 @@ if ($('btnLogout')) {
     window.location.href = '/login';
   });
 }
-async function refresh() {
+async function refresh(force = false) {
   if (refreshing) return;
+  if (!force && document.hidden && lastPayload) return;
   refreshing=true;
+  if ($('btnRefresh')) { $('btnRefresh').disabled = true; $('btnRefresh').textContent = 'Atualizando…'; }
   try {
-    const response=await fetch('/api/products',{signal:AbortSignal.timeout(12000),cache:'no-store'});
+    const headers = {};
+    if (!force && lastEtag) headers['If-None-Match'] = lastEtag;
+    const response=await fetch('/api/products',{headers,signal:AbortSignal.timeout(12000),cache:'no-store'});
     if (response.status === 401) { window.location.href = '/login'; return; }
+    if (response.status === 304) {
+      lastFetchedAt = Date.now();
+      $('catalogStatus').textContent=`O Fornecedor · ${catalog.length} ${catalog.length===1?'produto':'produtos'} · Atualizado às ${new Date().toLocaleTimeString('pt-BR')}`;
+      return;
+    }
     if (!response.ok) throw new Error('Falha no catálogo');
+    const etag = response.headers.get('ETag');
+    if (etag) lastEtag = etag;
     const data=await response.json();
     if (!Array.isArray(data.products)) throw new Error('Catálogo inválido');
     demo=data.demo===true;
     serverPriced=data.dfuApplied===true;
     if (data.user) updateUserBar(data.user);
+    lastFetchedAt = Date.now();
     const payload=JSON.stringify(data.products);
     if (lastPayload!==payload) {
       catalog=groupProducts(data.products);lastPayload=payload;renderCategories();renderCatalog();
@@ -217,8 +241,23 @@ async function refresh() {
   } catch(error) {
     $('catalogStatus').textContent='Sem atualização no momento · tentando novamente';
     if (!lastPayload) renderCatalog(true);
-  } finally { refreshing=false;$('catalogGrid').setAttribute('aria-busy','false'); }
+  } finally {
+    refreshing=false;
+    $('catalogGrid').setAttribute('aria-busy','false');
+    if ($('btnRefresh')) { $('btnRefresh').disabled = false; $('btnRefresh').textContent = 'Atualizar'; }
+  }
 }
+if ($('btnRefresh')) $('btnRefresh').addEventListener('click', () => refresh(true));
+if ($('searchInput')) {
+  $('searchInput').addEventListener('input', ev => {
+    searchQuery = ev.target.value || '';
+    limit = perPage;
+    renderCatalog();
+  });
+}
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden && Date.now() - lastFetchedAt > 60000) refresh(false);
+});
 for(const button of document.querySelectorAll('[data-close]'))button.addEventListener('click',()=>$(button.dataset.close).close());
 for(const dialog of document.querySelectorAll('dialog'))dialog.addEventListener('click',event=>{
   const rect=dialog.getBoundingClientRect();
@@ -232,4 +271,4 @@ if ($('perPageSelect')) {
   });
 }
 $('loadMore').addEventListener('click',()=>{limit+=perPage;renderCatalog();});
-renderCategories();refresh();setInterval(refresh,5000);
+renderCategories();refresh(true);setInterval(() => refresh(false), AUTO_REFRESH_MS);

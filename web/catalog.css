@@ -46,6 +46,23 @@ svg {
 .topbar-btn:hover { background: #f3f4f6; }
 .topbar-logout { color: #b91c1c; border-color: #fecaca; }
 .topbar-logout:hover { background: #fef2f2; }
+.section-controls { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.search-input {
+  width: 240px;
+  max-width: 100%;
+  padding: 7px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+  color: #111827;
+  font-size: 13px;
+}
+.search-input::placeholder { color: #9ca3af; }
+@media (max-width: 640px) {
+  .topbar { padding: 0 14px; }
+  .user-pill { display: none; }
+  .search-input { width: 100%; }
+}
 
 .catalog {
   padding: 18px 24px 0;
