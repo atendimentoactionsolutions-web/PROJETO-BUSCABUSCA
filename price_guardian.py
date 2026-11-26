@@ -134,6 +134,15 @@ FORBIDDEN_PATTERNS = [
     re.compile(r"PELLE|CAPINHA|OURA\s*RING", re.I),
 ]
 
+NON_ORIGINAL_RE = re.compile(
+    r"\b(?:[12]\s*[ªºa°]?\s*linha|primeira\s*linha|segunda\s*linha|linha\s+(?:premium|a{1,3}\+?)|"
+    r"premium\s+1|top\s*line|qualidade\s+original|tipo\s+original|igual\s+(?:ao\s+)?original|"
+    r"id[eê]ntic[oa]|original\s+china|super\s*clone|clones?|aaa\+?|r[eé]plicas?|paralel[oa]s?|"
+    r"similares?|similar|gen[eé]ric[oa]s?|oem|c[oó]pias?|fakes?|fals[oa]s?|foxconn|"
+    r"n[aã]o\s+origina(?:l|is))\b",
+    re.I,
+)
+
 
 def _norm_cap_for_guardian(cap):
     s = re.sub(r"\s+", "", str(cap or "-").upper())
@@ -839,10 +848,20 @@ def validate_product(product, existing_day_products=None, log_anomalies=True, al
     if not raw_model or len(raw_model) < 3:
         return False, "MODELO_INVALIDO", None
 
-    # 1. Checar termos proibidos
+    # 1. Checar termos proibidos e itens não-originais (1ª linha, réplica, paralelo, similar, OEM, Foxconn)
     for pat in FORBIDDEN_PATTERNS:
         if pat.search(raw_model):
             return _reject(f"MODELO_PROIBIDO: {raw_model}")
+    orig_blob = unicodedata.normalize(
+        "NFKC",
+        " ".join(
+            str(product.get(k) or "")
+            for k in ("modelo", "condicao", "linhaOriginal", "contextoOriginal", "texto_original")
+        ),
+    )
+    m_non_orig = NON_ORIGINAL_RE.search(orig_blob)
+    if m_non_orig:
+        return _reject(f"NAO_ORIGINAL_BLOQUEADO: {m_non_orig.group(0)}", "NAO_ORIGINAL_BLOQUEADO")
 
     # 2. Classificação de Seminovo vs Novo / Lacrado
     is_cpo = "CPO" in raw_model.upper() or "CPO" in str(product.get("condicao") or "").upper()

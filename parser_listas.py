@@ -173,7 +173,11 @@ def strip_tradein_disclaimers(text):
 
 
 NON_ORIGINAL = re.compile(
-    r"\b(?:1\s*[ªºa°]?\s*linha|primeira\s*linha|linha\s+premium|premium\s+1|qualidade\s+original|super\s*clone|aaa\+?|r[eé]plicas?|paralel[oa]s?|n[aã]o\s+origina(?:l|is))\b",
+    r"\b(?:[12]\s*[ªºa°]?\s*linha|primeira\s*linha|segunda\s*linha|linha\s+(?:premium|a{1,3}\+?)|"
+    r"premium\s+1|top\s*line|qualidade\s+original|tipo\s+original|igual\s+(?:ao\s+)?original|"
+    r"id[eê]ntic[oa]|original\s+china|super\s*clone|clones?|aaa\+?|r[eé]plicas?|paralel[oa]s?|"
+    r"similares?|similar|gen[eé]ric[oa]s?|oem|c[oó]pias?|fakes?|fals[oa]s?|foxconn|"
+    r"n[aã]o\s+origina(?:l|is))\b",
     re.I,
 )
 SECTION_BREAK = "FIM DE SECAO EXCLUIDA"
@@ -250,11 +254,42 @@ def call_gemini_api(prompt, image_base64=None):
     return ""
 
 
+def _is_clear_ocr_text(text):
+    """
+    Trava anti-confusão para fallback OCR (Tesseract):
+    descarta qualquer texto confuso, borrado, com ruído excessivo, não-original (1ª linha/réplica)
+    ou ambíguo entre Novo/Lacrado e Seminovo para nunca gerar bug de preço, cor ou condição.
+    """
+    raw = (text or "").strip()
+    if len(raw) < 12:
+        return False
+    if NON_ORIGINAL.search(raw):
+        return False
+    visible = [ch for ch in raw if not ch.isspace()]
+    if not visible:
+        return False
+    good = sum(1 for ch in visible if ch.isalnum() or ch in ".,:/-$%()+\"'")
+    if (good / len(visible)) < 0.72:
+        return False
+    u = strip_tradein_disclaimers(raw).upper()
+    has_apple = any(k in u for k in ("IPHONE", "MACBOOK", "IPAD", "WATCH", "AIRPODS", "AIRTAG", "PENCIL", "IMAC", "MAC MINI", "MAGIC"))
+    has_price = bool(re.search(r"(?:R\$|\$)\s*\d{2,5}|\b[1-9]\d{2,4}(?:[.,]\d{2})?\b", u))
+    if not (has_apple and has_price):
+        return False
+    has_semi = any(k in u for k in SEMINOVO_KEYWORDS)
+    has_new = any(k in u for k in NOVO_LACRADO_KEYWORDS)
+    # Se a imagem mistura rótulos conflitantes (Novo e Seminovo juntos no OCR), descarta por segurança
+    if has_semi and has_new:
+        return False
+    return True
+
+
 def analyze_product_image(image_base64):
     """
     Analisa a foto enviada pelo fornecedor (via Gemini Vision API + fallback OCR Tesseract)
     para extrair texto da imagem e identificar se a foto mostra um produto
     Novo/Lacrado, CPO, Caixa Aberta/Deslacrado ou Seminovo.
+    Regra de ouro: se a imagem for confusa, borrada, ambígua ou suspeita de 1ª linha/réplica, DESCARTA.
     """
     if not image_base64:
         return {"ocr_text": "", "image_condition": None}
@@ -264,11 +299,15 @@ def analyze_product_image(image_base64):
         if os.environ.get("GEMINI_API_KEY", "").strip():
             prompt = (
                 "Analise esta imagem enviada por um fornecedor Apple no atacado.\n"
-                "TRAVA DE SEGURANÇA CANÔNICA (OBRIGATÓRIO):\n"
-                "1. Identifique a condição exata na primeira linha: escreva exatamente 'LACRADOS' se forem produtos novos lacrados, "
+                "TRAVA DE SEGURANÇA CANÔNICA E ANTI-CONFUSÃO (OBRIGATÓRIO):\n"
+                "1. Identifique a condição exata na primeira linha: escreva exatamente 'LACRADOS' se forem produtos novos lacrados originais Apple, "
                 "'CPO' se forem Apple CPO, 'DESLACRADO' se for caixa aberta/open box/sem lacre, ou 'SEMINOVO' se for usado/vitrine/as-is/bateria.\n"
-                "2. Ignore Android, Xiaomi, Realme, Garmin, videogames, capas, películas ('pelle'), 1ª linha e itens ativados/seminovos/open box.\n"
-                "3. Use EXATAMENTE os nomes canônicos oficiais sem sufixos (NUNCA escreva LL/A, HN/A, FÍSICO, chip, Anatel, '18 Duo', cores ou códigos A3xxx no modelo):\n"
+                "2. Ignore e DESCARTE totalmente: Android, Xiaomi, Realme, Garmin, videogames, capas, películas ('pelle'), "
+                "qualquer item 1ª linha / réplica / paralelo / similar / OEM / genérico / Foxconn / original china, e itens ativados/seminovos/open box.\n"
+                "3. REGRA NA DÚVIDA DESCARTE: se a imagem estiver borrada, cortada, confusa, ambígua, misturar novo com seminovo sem separação clara, "
+                "não deixar claro se o produto é Apple 100% original, ou se modelo/cor/armazenamento/preço não estiverem 100% legíveis, "
+                "NUNCA chute nem adivinhe — descarte a linha confusa (ou responda apenas VAZIO se a imagem inteira for confusa).\n"
+                "4. Use EXATAMENTE os nomes canônicos oficiais sem sufixos (NUNCA escreva LL/A, HN/A, FÍSICO, chip, Anatel, '18 Duo', cores ou códigos A3xxx no modelo):\n"
                 "   - Dobrável Apple chama-se SEMPRE 'IPHONE DUO' (NUNCA 'IPHONE 18 DUO').\n"
                 "   - Exemplos válidos:\n"
                 "     LACRADOS\n"
@@ -277,12 +316,12 @@ def analyze_product_image(image_base64):
                 "     IPHONE 17 PRO MAX 512GB LARANJA R$ 8350\n"
                 "     MACBOOK AIR M5 13 16/512GB MEIA-NOITE R$ 8100\n"
                 "     APPLE WATCH ULTRA 4 49MM PRETO R$ 5050\n"
-                "4. Liste apenas UMA oferta por linha no formato: MODELO CAPACIDADE COR R$ PRECO.\n"
-                "5. Se não houver tabela de preços Apple Novo/CPO legível com valores reais, responda apenas VAZIO."
+                "5. Liste apenas UMA oferta por linha no formato: MODELO CAPACIDADE COR R$ PRECO.\n"
+                "6. Se não houver tabela de preços Apple Original Novo/CPO 100% legível com valores reais, responda apenas VAZIO."
             )
             gemini_txt = call_gemini_api(prompt, raw_b64)
             if gemini_txt:
-                if "VAZIO" in gemini_txt.upper():
+                if "VAZIO" in gemini_txt.upper() or NON_ORIGINAL.search(gemini_txt):
                     return {"ocr_text": "", "image_condition": None}
                 u_gem = strip_tradein_disclaimers(gemini_txt).upper()
                 img_cond = None
@@ -315,6 +354,9 @@ def analyze_product_image(image_base64):
                 os.remove(tmp_path)
             except Exception:
                 pass
+
+        if not _is_clear_ocr_text(ocr_text):
+            return {"ocr_text": "", "image_condition": None}
 
         u_ocr = strip_tradein_disclaimers(ocr_text).upper()
         img_cond = None

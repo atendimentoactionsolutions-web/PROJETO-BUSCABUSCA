@@ -47,6 +47,10 @@ Este arquivo é carregado automaticamente em **todas as sessões** e auditorias 
 4. **Cabo-de-guerra entre robôs (ex: `34 → 33 → 34` iPhones Novos):** `guardian_sweep_worker` grava removidos em `quarentena_guardiao.json` (por dia) e `daily_review_worker` nunca reinserirá item em quarentena.
 5. **Hash de senha portável (macOS LibreSSL vs Linux):** usar `hashlib.pbkdf2_hmac("sha256", ..., 200_000)` em `access_control.py` (nunca `hashlib.scrypt`).
 6. **Comunidades ignoradas no scan (`leaveBlockedMembership is not defined`):** manter `activeLeaveBlockedMembership` no escopo de módulo em `whatsapp_bridge.js` e `blacklisted` explícito em `/api/groups` para que `coverage_guardian.py` audite 100% dos grupos válidos (`0 fora do radar`) sem falsos alertas em itens da `GROUP_BLACKLIST`.
+7. **Reset 00:00 + Janela 06:00 + Regra "na dúvida descarta" (mensagens, imagens OCR e 1ª linha):**
+   - `00:00` BRT zera `produtos_dia.json` e `quarentena_guardiao.json` (arquivando o dia anterior).
+   - `00:00–05:59` BRT: captura bloqueada; `06:00` BRT em diante (até `18:00`): captura texto + imagens (Gemini Vision + fallback OCR filtrado por `_is_clear_ocr_text`).
+   - Qualquer oferta confusa, ambígua, incompleta, misturando Novo/Seminovo ou com sinal de não-original (`1ª linha`, `primeira linha`, `segunda linha`, `réplica`, `paralelo`, `similar`, `OEM`, `genérico`, `Foxconn`, `original china`, `clone`, `fake`) é descartada no parser e bloqueada em `price_guardian.py` (`NAO_ORIGINAL_BLOQUEADO`).
 
 ---
 

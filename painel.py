@@ -616,7 +616,14 @@ def midnight_reset_worker():
                     if prev_items:
                         archive_produtos(prev_items)
                     save_produtos([])
-                add_panel_log("[RESET DIÁRIO] 🕛 MEIA-NOITE! Catálogo do dia anterior arquivado e zerado para o novo dia.")
+                try:
+                    atomic_json_write(
+                        os.path.join(BASE_DIR, "quarentena_guardiao.json"),
+                        {"date": today_str, "keys": []},
+                    )
+                except OSError:
+                    pass
+                add_panel_log("[RESET DIÁRIO] 🕛 MEIA-NOITE! Catálogo e quarentena zerados; nova captura abre às 06:00 BRT.")
                 last_reset_day = today_str
             elif now_str.startswith("06:00") and last_open_day != today_str:
                 add_panel_log("[JANELA 06:00-18:00] ☀️ Janela diária de captura aberta às 06:00 BRT.")
