@@ -10,7 +10,7 @@ Este arquivo é carregado automaticamente em **todas as sessões** e auditorias 
 - **Escopo exclusivo:** alterar **SOMENTE** `PROJETO-BUSCABUSCA` (`/opt/disparador-fornecedores` na VPS). **NUNCA** mexer em `mundo-apple-buscador`.
 - **Fluxo obrigatório de deploy:** **SEMPRE `local → GitHub (commit + push) → VPS`**. Nunca editar código diretamente na VPS sem commitar no GitHub antes.
 - **Segurança de segredos:** nunca commitar chaves, senhas, tokens, `api_v1_key.txt`, `session_secret.txt`, `usuarios_acesso.json`, `accounts.db` ou dados de runtime no GitHub.
-- **Marca e domínio:** **O Fornecedor** — `https://ofornecedor.srv2058756.hstgr.cloud/` (`buscabusca.srv2058756.hstgr.cloud` faz redirect `301`).
+- **Marca e domínio:** **O Fornecedor** — domínio principal `https://ofornecedor.tech/` (`www.ofornecedor.tech`, `ofornecedor.srv2058756.hstgr.cloud` e `buscabusca.srv2058756.hstgr.cloud` fazem redirect `301` para `https://ofornecedor.tech/`).
 - **Banco de contas blindado:** o SQLite de usuários fica **fora** da pasta de código, em `/var/lib/ofornecedor-db/accounts.db` (via `OFORNECEDOR_DB_DIR=/var/lib/ofornecedor-db` em `/etc/systemd/system/disparador-pxt.service.d/accounts-db.conf`) com backups automáticos em `/var/lib/ofornecedor-db/backups/`. **NUNCA apagar, sobrescrever ou resetar este banco em deploys.**
 
 ---
