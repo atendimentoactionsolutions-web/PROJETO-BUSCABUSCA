@@ -164,8 +164,80 @@ CANONICAL_COLOR_MAP = {
     "ardosia": "ARDÓSIA",
     "slate": "ARDÓSIA",
     "dark bronze": "BRONZE",
+    "dk bronze": "BRONZE",
+    "dk bronse": "BRONZE",
+    "dark bronse": "BRONZE",
     "bronze": "BRONZE",
+    "burgandy": "BURGUNDY",
+    "brugundy": "BURGUNDY",
+    "bordo": "BURGUNDY",
+    "siiver": "PRATA",
+    "larnaja": "LARANJA",
+    "lilais": "ROXO",
+    "leilas": "ROXO",
+    "violeta": "ROXO",
+    "wihte": "BRANCO",
+    "lavand": "LAVANDA",
+    "ultramine": "AZUL ULTRAMARINO",
+    "night shy": "NIGHT SKY",
 }
+
+EMOJI_COLOR_CANDIDATES = {
+    "🖤": ("PRETO", "MEIA-NOITE", "PRETO ESPACIAL", "PRETO TITÂNIO", "GRAFITE", "NIGHT SKY"),
+    "⚫": ("PRETO", "MEIA-NOITE", "PRETO ESPACIAL", "PRETO TITÂNIO", "GRAFITE", "NIGHT SKY"),
+    "🤍": ("BRANCO", "PRATA", "ESTELAR", "BRANCO TITÂNIO"),
+    "⚪": ("BRANCO", "PRATA", "ESTELAR", "BRANCO TITÂNIO"),
+    "🩶": ("NATURAL TITÂNIO", "CINZA ESPACIAL", "GRAFITE", "PRATA"),
+    "💙": ("GLACIER", "AZUL", "AZUL SIERRA", "AZUL TITÂNIO", "AZUL ULTRAMARINO", "AZUL PACÍFICO"),
+    "🔵": ("GLACIER", "AZUL", "AZUL SIERRA", "AZUL TITÂNIO", "AZUL ULTRAMARINO", "AZUL PACÍFICO"),
+    "🩵": ("GLACIER", "AZUL", "AZUL SIERRA", "AZUL TITÂNIO", "AZUL ULTRAMARINO"),
+    "❤": ("VERMELHO", "BURGUNDY"),
+    "♥": ("VERMELHO", "BURGUNDY"),
+    "🔴": ("VERMELHO", "BURGUNDY"),
+    "🤎": ("BURGUNDY", "DESERT TITÂNIO", "BRONZE"),
+    "🟤": ("BURGUNDY", "DESERT TITÂNIO", "BRONZE"),
+    "🧡": ("LARANJA", "DESERT TITÂNIO", "DOURADO"),
+    "🟠": ("LARANJA", "DESERT TITÂNIO", "DOURADO"),
+    "💛": ("AMARELO", "DOURADO", "DESERT TITÂNIO"),
+    "🟡": ("AMARELO", "DOURADO", "DESERT TITÂNIO"),
+    "💜": ("ROXO", "ROXO PROFUNDO", "LAVANDA"),
+    "🟣": ("ROXO", "ROXO PROFUNDO", "LAVANDA"),
+    "🩷": ("ROSA",),
+    "🌸": ("ROSA",),
+    "💚": ("VERDE", "VERDE ACINZENTADO", "VERDE ALPINO"),
+    "🟢": ("VERDE", "VERDE ACINZENTADO", "VERDE ALPINO"),
+}
+
+
+def has_color_emoji(text):
+    return any(ch in EMOJI_COLOR_CANDIDATES for ch in str(text or ""))
+
+
+def resolve_emoji_color(raw_line, model_name):
+    """
+    Robô tradutor de cores por emoji baseado estritamente nas cores oficiais Apple do modelo.
+    Regra anti-erro: se houver 0 ou 2+ emojis de cores diferentes, ou qualquer ambiguidade no modelo, retorna None.
+    Em Apple Watch nunca infere caixa só por emoji (protege contra confusão pulseira vs caixa).
+    """
+    raw = str(raw_line or "")
+    u_model = str(model_name or "").upper().strip()
+    if not raw or not u_model:
+        return None
+    if "WATCH" in u_model and not re.search(r"\bCAIXA\b", raw, re.I):
+        return None
+    if "AIRPODS MAX" in u_model:
+        return None
+    uniq = list(dict.fromkeys(ch for ch in raw if ch in EMOJI_COLOR_CANDIDATES))
+    if len(uniq) != 1:
+        return None
+    emoji = uniq[0]
+    for pat, _overrides, allowed in OFFICIAL_MODEL_COLOR_RULES:
+        if pat.search(u_model):
+            matches = [c for c in EMOJI_COLOR_CANDIDATES[emoji] if c in allowed]
+            if len(matches) == 1:
+                return matches[0]
+            return None
+    return None
 
 # Regras oficiais Apple (verificadas em apple.com): (regex_modelo, overrides_por_chave_ascii, cores_permitidas)
 OFFICIAL_MODEL_COLOR_RULES = [

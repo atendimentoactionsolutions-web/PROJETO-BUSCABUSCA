@@ -27,6 +27,7 @@ COLOR_ALIASES = {
     "MEIA NOITE": "MEIA-NOITE",
     "MEIA-NOITE": "MEIA-NOITE",
     "NIGHT SKY": "NIGHT SKY",
+    "NIGHT SHY": "NIGHT SKY",
     "SPACE GRAY": "CINZA ESPACIAL",
     "SPACE GREY": "CINZA ESPACIAL",
     "SPACEGRAY": "CINZA ESPACIAL",
@@ -48,6 +49,8 @@ COLOR_ALIASES = {
     "PRATA": "PRATA",
     "PRATEADO": "PRATA",
     "PRATEADA": "PRATA",
+    "SIIVER": "PRATA",
+    "SILVR": "PRATA",
     "NATURAL CARBON": "PRATA",
     "NATURAL": "NATURAL TITÂNIO",
     "NATURAL TITANIUM": "NATURAL TITÂNIO",
@@ -60,6 +63,9 @@ COLOR_ALIASES = {
     "TITÂNIO DESERTO": "DESERT TITÂNIO",
     "TITANIO DESERTO": "DESERT TITÂNIO",
     "DARK BRONZE": "BRONZE",
+    "DK BRONZE": "BRONZE",
+    "DK BRONSE": "BRONZE",
+    "DARK BRONSE": "BRONZE",
     "BRONZE": "BRONZE",
     "LIGHT GOLD": "DOURADO",
     "WHITE GOLD": "DOURADO",
@@ -67,6 +73,11 @@ COLOR_ALIASES = {
     "GOLD": "DOURADO",
     "DOURADO": "DOURADO",
     "DOURADA": "DOURADO",
+    "WHITE": "BRANCO",
+    "BRANCO": "BRANCO",
+    "BRANCA": "BRANCO",
+    "WIHTE": "BRANCO",
+    "WHTE": "BRANCO",
     "SOFT PINK": "ROSA",
     "ROSE": "ROSA",
     "ROSA GOLD": "ROSA",
@@ -78,13 +89,16 @@ COLOR_ALIASES = {
     "ROSA": "ROSA",
     "BLUSH": "ROSA",
     "LAVANDA": "LAVANDA",
-    "LAVENDER": "LAVANDA",
+    "LAVANDER": "LAVANDA",
+    "LAVAND": "LAVANDA",
     "GLACIER": "GLACIER",
     "GLACIAL": "GLACIER",
     "GLACIAR": "GLACIER",
     "GLACIE": "GLACIER",
     "GLARCEIR": "GLACIER",
     "BURGUNDY": "BURGUNDY",
+    "BURGANDY": "BURGUNDY",
+    "BRUGUNDY": "BURGUNDY",
     "BORDÔ": "BURGUNDY",
     "BORDO": "BURGUNDY",
     "BORDEAUX": "BURGUNDY",
@@ -96,6 +110,7 @@ COLOR_ALIASES = {
     "INDIGO": "AZUL",
     "ÍNDIGO": "AZUL",
     "ULTRAMARINE": "AZUL ULTRAMARINO",
+    "ULTRAMINE": "AZUL ULTRAMARINO",
     "PACIFIC BLUE": "AZUL PACÍFICO",
     "SIERRA BLUE": "AZUL SIERRA",
     "BLUE TITANIUM": "AZUL TITÂNIO",
@@ -112,6 +127,9 @@ COLOR_ALIASES = {
     "ROXO": "ROXO",
     "LILAS": "ROXO",
     "LILÁS": "ROXO",
+    "LILAIS": "ROXO",
+    "LEILAS": "ROXO",
+    "VIOLETA": "ROXO",
     "DEEP PURPLE": "ROXO PROFUNDO",
     "ROXO PROFUNDO": "ROXO PROFUNDO",
     "RED": "VERMELHO",
@@ -123,6 +141,7 @@ COLOR_ALIASES = {
     "COSMIC ORANGE": "LARANJA",
     "ORANGE": "LARANJA",
     "LARANJA": "LARANJA",
+    "LARNAJA": "LARANJA",
     "TITANIUM": "TITÂNIO",
 }
 
@@ -397,6 +416,8 @@ def clean_line(line):
         .replace("💰", "$")
         .replace("💵", "$")
     )
+    norm = re.sub(r"([a-zà-ÿ])(R\$)", r"\1 \2", norm)
+    norm = re.sub(r"([A-Za-zÀ-ÿ])(?<![Rr])\$", r"\1 $", norm)
     cleaned = re.sub(r'[^\w\s\$\.,/\-\+\(\)%"]', " ", norm, flags=re.UNICODE)
     cleaned = re.sub(r"\s+", " ", cleaned).strip()
     return cleaned
@@ -409,7 +430,7 @@ PROMOTION = re.compile(r"\bde\s*(?:R?\$\s*)?(" + MONEY_NUMBER +
                        r")\s*[,;–-]?\s*por\s*(?:R?\$\s*)?(" + MONEY_NUMBER + r")", re.I)
 
 
-def extract_price_from_line(line):
+def extract_price_from_line(line, has_emoji_color=False):
     upper = line.upper()
     scrubbed = re.sub(r"\b\d{1,2}\s*/\s*\d{2,4}\s*(?:GB|TB)?\b", " ", upper)
     scrubbed = re.sub(r"\b(?:16|32|64|128|256|512|1024)\s*(?:GB|G)\b", " ", scrubbed)
@@ -432,8 +453,22 @@ def extract_price_from_line(line):
     m_end = re.search(r"(?:[\-\:\=\(]|(?:\s))(\d{3,5}(?:,\d{2})?)\)?\s*$", scrubbed)
     if m_end:
         val = parse_num_br(m_end.group(1))
-        if val not in (64, 128, 256, 512, 1024, 2023, 2024, 2025, 2026) and 120 <= val <= 45000:
+        if val not in (64, 128, 256, 512, 1024, 2023, 2024, 2025, 2026, 2027) and 120 <= val <= 45000:
             return val
+
+    m_bare = re.fullmatch(r"\s*(\d{3,5}(?:,\d{2})?)\s*", scrubbed)
+    if m_bare:
+        val = parse_num_br(m_bare.group(1))
+        floor = 150 if has_emoji_color else 400
+        if val not in (64, 128, 256, 512, 1024, 2023, 2024, 2025, 2026, 2027) and floor <= val <= 45000:
+            return val
+
+    if has_emoji_color:
+        m_emoji_start = re.match(r"^\s*(\d{3,5}(?:,\d{2})?)\b", scrubbed)
+        if m_emoji_start:
+            val = parse_num_br(m_emoji_start.group(1))
+            if val not in (64, 128, 256, 512, 1024, 2023, 2024, 2025, 2026, 2027) and 400 <= val <= 45000:
+                return val
 
     return None
 
@@ -665,10 +700,11 @@ def is_shorthand_iphone_line(line):
     for alias in sorted(COLOR_ALIASES.keys(), key=len, reverse=True):
         u = re.sub(r"\b" + re.escape(alias) + r"\b", " ", u)
     u = re.sub(
-        r"\b(?:(?:LL|HN|AH|CH|ZA|ZP|JA|BR|BZ|BE|VC|QL|ZD|LZ|KH|TH|TA|AE|AA)(?:/A)?|E-SIM|ESIM|ANATEL|VIRTUAL|F[IÍ]SICO|FISICO|NANO[\s-]*SIM|DUAL[\s-]*SIM|COM\s+CHIP|SEM\s+CHIP|1\s*CHIP(?:\s*\+\s*1)?|CHIP|LACRAD[OA]S?|NOV[OA]S?|ATIVAD[OA]S?|CPO|202[0-9])\b",
+        r"\b(?:(?:LL|HN|AH|CH|ZA|ZP|JA|BR|BZ|BE|VC|QL|ZD|LZ|KH|TH|TA|AE|AA)(?:/A)?|E-SIM|ESIM|ANATEL|VIRTUAL|F[IÍ]SICO|FISICO|NANO[\s-]*SIM|DUAL[\s-]*SIM|COM\s+CHIP|SEM\s+CHIP|1\s*CHIP(?:\s*\+\s*1)?|CHIP|LACRAD[OA]S?|NOV[OA]S?|ATIVAD[OA]S?|SEMINOV[OA]S?|CPO|202[0-9]|BAT(?:ERIA)?|GARANTIA|\d{2,3}\s*[%+])\b",
         " ",
         u,
     )
+    u = re.sub(r"\b\d{2,3}\s*\+", " ", u)
     u = re.sub(r"\s+", " ", u).strip(" -/+")
     if re.match(
         r"^(?:IPHONE\s+|IP\s+|IPH\s+)?(?:1[1-8]E?|SE(?:\s*[23])?|X[RS]?|[78]|DUO|DOU|FOLD)\s*(?:(?:AIR|MINI|PLUS|PRO\s*MAX|PRO|PM|DUO|DOU|FOLD))?\s*(?:(?:64|128|256|512|1024)\s*(?:GB|G)?|[124]\s*TB?)?$",
@@ -1195,8 +1231,17 @@ def parse_supplier_message(text, supplier_name, supplier_phone, group_name="", d
     # Se a mensagem inteira é sobre Seminovo (e não é uma lista mista com seção "LACRADOS")
     section_seminovo = bool(has_explicit_seminovo and not has_explicit_novo)
 
-    lines = [clean_line(l) for l in clean_full_text.splitlines()]
-    lines, original_blocks = fold_multiline_device_blocks([l for l in lines if len(l) >= 2])
+    from collections import defaultdict
+    import color_guardian
+
+    raw_by_clean = defaultdict(list)
+    clean_entries = []
+    for raw_ln in clean_full_text.splitlines():
+        cl = clean_line(raw_ln)
+        if len(cl) >= 2:
+            raw_by_clean[cl].append(raw_ln)
+            clean_entries.append(cl)
+    lines, original_blocks = fold_multiline_device_blocks(clean_entries)
     lines = expand_watch_price_blocks(lines)
 
     parsed_products = []
@@ -1211,6 +1256,8 @@ def parse_supplier_message(text, supplier_name, supplier_phone, group_name="", d
     evidence_lines = []
 
     for line in lines:
+        raw_line = raw_by_clean[line].pop(0) if raw_by_clean.get(line) else line
+        has_emoji_color = color_guardian.has_color_emoji(raw_line)
         u = line.upper()
 
         if u == SECTION_BREAK or excluded_power_accessory(line):
@@ -1221,8 +1268,9 @@ def parse_supplier_message(text, supplier_name, supplier_phone, group_name="", d
             evidence_lines = []
             continue
         explicit_condition = condition_from_text(line)
+        line_price_probe = extract_price_from_line(line, has_emoji_color=has_emoji_color)
         is_specific_model_line = False
-        if explicit_condition and extract_price_from_line(line) is None and looks_like_product_header(line):
+        if explicit_condition and line_price_probe is None and looks_like_product_header(line):
             cand_m = normalize_model_name(line)
             if cand_m and cand_m not in {"IPHONE", "IPHONES", "IPAD", "IPADS", "MACBOOK", "MACBOOKS", "APPLE WATCH", "WATCH", "AIRPODS", "IMAC", "MAC MINI", "MAC STUDIO"}:
                 if "IPHONE" in cand_m:
@@ -1269,7 +1317,7 @@ def parse_supplier_message(text, supplier_name, supplier_phone, group_name="", d
             header_placeholder_idx = None
             continue
 
-        price = extract_price_from_line(line)
+        price = line_price_probe
         has_product_kw = looks_like_product_header(line)
 
         # Caso 1: Cabeçalho de modelo sem preço (ex: "IPHONE 16 PRO MAX 256GB" ou "15 128" ou "18 PRO 256 LL")
@@ -1290,6 +1338,8 @@ def parse_supplier_message(text, supplier_name, supplier_phone, group_name="", d
             evidence_lines = [line]
             current_header_capacity = mac_mini_capacity(line) if _is_mac_model(cand_model) else extract_capacity(line)
             current_header_color = extract_color(line)
+            if current_header_color == "-" and has_emoji_color:
+                current_header_color = color_guardian.resolve_emoji_color(raw_line, cand_model) or "-"
             current_header_price = None
             header_placeholder_idx = None
             if explicit_condition == "CPO":
@@ -1362,6 +1412,8 @@ def parse_supplier_message(text, supplier_name, supplier_phone, group_name="", d
                 section_seminovo = False
             cap = mac_mini_capacity(line) if _is_mac_model(model) else extract_capacity(line)
             color = extract_color(line)
+            if color == "-" and has_emoji_color:
+                color = color_guardian.resolve_emoji_color(raw_line, model) or "-"
             cond_val = explicit_condition or section_condition
             sem = is_seminovo(line, section_seminovo, model, price, has_explicit_novo)
             if sem and cond_val in ("Condição não informada", "Novo / Lacrado", "Novo — lacre não informado") and cond_val != "CPO":
@@ -1412,6 +1464,8 @@ def parse_supplier_message(text, supplier_name, supplier_phone, group_name="", d
         # Caso 3: Linha de cor + preço ou "Valor: R$ ..." abaixo de um cabeçalho de produto
         if not has_product_kw and price is not None and current_header_model:
             color = extract_color(line)
+            if color == "-" and has_emoji_color:
+                color = color_guardian.resolve_emoji_color(raw_line, current_header_model) or "-"
             if color == "-" and current_header_color != "-":
                 color = current_header_color
             cap_line = mac_mini_capacity(line) if _is_mac_model(current_header_model) else extract_capacity(line)
