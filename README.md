@@ -31,7 +31,7 @@ node --check whatsapp_bridge.js
 
 Destino exclusivo: `/opt/disparador-fornecedores`, serviço `disparador-pxt`, portas 3050 e 3051. O sistema da porta 80 é independente e não integra este projeto.
 
-Antes de publicar, criar backup restrito fora do diretório da aplicação. Copiar apenas código e `web/`; preservar os JSONs de operação, fornecedores, configurações, histórico e `auth_session/`. Instalar dependências com `npm ci --omit=dev`, validar sintaxe e reiniciar apenas `disparador-pxt`. Verificar catálogo, `/api/products` e status interno WhatsApp. O backup contém dados privados e deve permanecer restrito ao administrador.
+O `scripts/deploy-vps.sh` cria um backup restrito do código fora do diretório da aplicação e um snapshot online do banco SQLite de contas. Copiar apenas código e `web/`; preservar os JSONs de operação, fornecedores, configurações, histórico e `auth_session/`. Instalar dependências com `npm ci --omit=dev`, validar sintaxe e reiniciar apenas `disparador-pxt`. Verificar catálogo, `/api/products` e status interno WhatsApp. O backup contém dados privados e deve permanecer restrito ao administrador.
 
 Dados operacionais, sessões e arquivos `.env` não devem entrar no Git. Scripts legados de disparo e limpeza destrutiva foram removidos; o processamento e validação ativos estão em Python.
 

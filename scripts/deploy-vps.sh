@@ -6,11 +6,27 @@ app=/opt/disparador-fornecedores
 backup="/opt/backups/buscabusca-$(date -u +%Y%m%dT%H%M%SZ)"
 mkdir -p "$backup"
 chmod 700 /opt/backups "$backup"
-tar --exclude=node_modules --exclude=.git --exclude=__pycache__ -czf "$backup/application.tar.gz" -C "$app" .
+backup_candidates=(
+  painel.py daily_review.py color_guardian.py coverage_guardian.py access_control.py
+  whatsapp_bridge.js capture_queue.js invite_queue.js invite_policy.js parser_listas.py
+  price_guardian.py apple_reference.py apple_reference_seed.json package.json package-lock.json
+  README.md .gitignore INICIAR_DISPARADOR.bat web tests scripts
+)
+backup_paths=()
+for path in "${backup_candidates[@]}"; do
+  if [ -e "$app/$path" ]; then backup_paths+=("$path"); fi
+done
+tar -czf "$backup/application.tar.gz" -C "$app" "${backup_paths[@]}"
 chmod 600 "$backup/application.tar.gz"
-if [ -d /var/lib/ofornecedor-db ]; then
-  tar -czf "$backup/accounts-db.tar.gz" -C /var/lib/ofornecedor-db .
-  chmod 600 "$backup/accounts-db.tar.gz"
+if [ -f /var/lib/ofornecedor-db/accounts.db ]; then
+  python3 - /var/lib/ofornecedor-db/accounts.db "$backup/accounts.db" <<'PY'
+import sqlite3
+import sys
+
+with sqlite3.connect(sys.argv[1]) as source, sqlite3.connect(sys.argv[2]) as destination:
+    source.backup(destination)
+PY
+  chmod 600 "$backup/accounts.db"
 fi
 systemctl cat disparador-pxt > "$backup/service.txt"
 cd "$release"
