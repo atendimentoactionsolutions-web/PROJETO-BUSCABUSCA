@@ -576,6 +576,7 @@ function identityOf(offer) {
     const connSource = `${model} ${rawLine}`;
     const isCellular = /(?:\+|wi-?fi\s*\+?)\s*cel(?:l(?:ular)?|ular)?\b|\b(?:celular|cellular|5g|4g|lte|e-?sim|com\s+chip)\b/.test(connSource);
     model = model
+      .replace(/\bipad\s*-\s*(?=(?:10|11|a16|air|mini|pro)\b)/g, 'ipad ')
       .replace(/\b(?:gb|tb)\b/g, ' ')
       .replace(/\s+/g, ' ')
       .replace(/\bwifi\b/g, 'wi-fi')

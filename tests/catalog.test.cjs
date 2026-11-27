@@ -413,6 +413,23 @@ test('supplier and reference iPad names group by generation and screen size',asy
   }
 });
 
+test('hyphenated iPad 11 Wi-Fi and A1611 aliases group together without merging storage or Cellular',async()=>{
+  const {groupProducts}=await import('../web/catalog.js');
+  const ipad={...base,categoria:'iPad',condicao:'Novo / Lacrado',cor:'ROSA'};
+  const groups=groupProducts([
+    {...ipad,modelo:'IPAD-11-WI-FI',capacidade:'128GB',fornecedor:'Hyphen'},
+    {...ipad,modelo:'IPAD 11 A1611 WI-FI',capacidade:'128 GB',cor:'AZUL',fornecedor:'A1611'},
+    {...ipad,modelo:'IPAD 11 A1611 WI-FI',capacidade:'256GB',fornecedor:'256GB'},
+    {...ipad,modelo:'IPAD 11 A1611 WI-FI + CELLULAR',capacidade:'128GB',fornecedor:'Cellular'},
+  ]);
+  assert.equal(groups.length,3);
+  const wifi128=groups.find(g=>g.capacity==='128 GB'&&!g.model.includes('Cellular'));
+  assert.equal(wifi128.offers.length,2);
+  assert.deepEqual(wifi128.variants.map(v=>v.key).sort(),['blue','pink']);
+  assert.ok(groups.some(g=>g.capacity==='256 GB'&&!g.model.includes('Cellular')));
+  assert.ok(groups.some(g=>g.capacity==='128 GB'&&g.model.includes('Cellular')));
+});
+
 test('separates iPad Wi-Fi and Wi-Fi + Cellular into distinct ordered sections for all models', async () => {
   const { groupProducts, sortCatalogForDisplay, catalogSections } = await import('../web/catalog.js');
   const rows = [
