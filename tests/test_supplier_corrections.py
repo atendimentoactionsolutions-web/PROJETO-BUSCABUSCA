@@ -101,6 +101,21 @@ class SupplierCorrectionTests(unittest.TestCase):
                 swept, report = price_guardian.run_guardian_sweep(peers + [suspect], log_anomalies=False)
                 self.assertEqual(len(swept), 3)
 
+    def test_consensus_never_invents_seminovo_for_unknown_condition(self):
+        peers = [dict(self.iphone(str(i), 8200), condicao='Condição não informada') for i in range(3)]
+        suspect = dict(self.iphone('suspect', 9200), condicao='Condição não informada')
+        rows, report = price_guardian.run_guardian_sweep(peers + [suspect], log_anomalies=False)
+        self.assertEqual(len(rows), 3)
+        self.assertEqual(report['reclassified'], 0)
+
+    def test_legacy_inferred_seminovo_without_source_evidence_is_rejected(self):
+        row = self.iphone('suspect', 9200, is_seminovo=True,
+                          contextoOriginal='Condição não informada\niPhone 17 Pro Max 256GB prata R$ 9200')
+        row['condicao'] = 'Seminovo'
+        ok, reason, _ = price_guardian.validate_product(row, allow_seminovo=True, log_anomalies=False)
+        self.assertFalse(ok)
+        self.assertEqual(reason, 'CONDICAO_SEMINOVO_SEM_EVIDENCIA')
+
     def test_no_consensus_no_automatic_price_claim(self):
         for peers in ([8200, 8200], [7000, 8200, 9400]):
             rows = [self.iphone(str(i), price) for i, price in enumerate(peers)]

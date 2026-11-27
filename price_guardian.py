@@ -903,6 +903,11 @@ def validate_product(product, existing_day_products=None, log_anomalies=True, al
     # 2. Classificação de Seminovo vs Novo / Lacrado
     is_cpo = "CPO" in raw_model.upper() or "CPO" in str(product.get("condicao") or "").upper()
     is_seminovo = _is_seminovo_condition(product.get("condicao", ""), product.get("categoria", ""))
+    if (is_seminovo and product.get("is_seminovo") and
+            (product.get("contextoOriginal") or product.get("linhaOriginal")) and
+            not DISCONTINUED_NEW_IPHONE_RE.search(raw_model) and
+            not _has_hidden_seminovo_signal(dict(product, condicao=""))):
+        return _reject("CONDICAO_SEMINOVO_SEM_EVIDENCIA")
     if is_seminovo and not allow_seminovo:
         return _reject(f"SEMINOVO_REJEITADO: {product.get('condicao')}", "SEMINOVO_BLOQUEADO")
     if is_seminovo and not product.get("condicao"):
@@ -1143,7 +1148,8 @@ def run_guardian_sweep(rows, offer_key_fn=None, log_anomalies=True):
         semi_bound = next(((lo, hi) for pat, lo, hi in SEMINOVO_SANITY_BOUNDS if pat.search(mod_up)), None)
 
         can_reclassify_semi = (
-            not is_cpo
+            not div_reason.startswith("PRECO_DIVERGENTE_CONSENSO")
+            and not is_cpo
             and "IPHONE" in mod_up
             and "DUO" not in mod_up
             and semi_bound is not None
