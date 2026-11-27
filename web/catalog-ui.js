@@ -30,25 +30,6 @@ function icon(paths = eyePaths) {
   for (const data of paths) { const path = document.createElementNS(svg.namespaceURI,'path'); path.setAttribute('d',data); svg.append(path); }
   return svg;
 }
-function conditionQuestion(condition) {
-  const label = String(condition || '').trim();
-  switch (label.toLocaleLowerCase('pt-BR')) {
-    case 'lacrado':
-    case 'novo / lacrado':
-      return 'Você confirma que está lacrado de fábrica?';
-    case 'seminovo':
-      return 'Você confirma que é seminovo?';
-    case 'novo':
-    case 'novo — lacre não informado':
-      return 'Você confirma que é novo? Está lacrado de fábrica ou já foi aberto?';
-    case '':
-    case '-':
-    case 'condição não informada':
-      return 'Qual é a condição do produto? Está lacrado de fábrica, é seminovo ou tem outra condição?';
-    default:
-      return `Você confirma que a condição é “${label}”?`;
-  }
-}
 function renderCategories() {
   const counts = new Map(CATEGORIES.map(([id]) => [id, 0]));
   for (const g of catalog) counts.set(g.category, (counts.get(g.category) || 0) + 1);
@@ -172,9 +153,7 @@ function renderSupplierList(group,colorKey) {
       const link=element('a','','Consultar fornecedor ↗');
       link.target='_blank'; link.rel='noopener noreferrer';
       const product = [group.model, group.capacity].filter(Boolean).join(' ');
-      const colorQuestion = offer.cor === 'Cor da caixa a confirmar' ? ' Qual é a cor da caixa do relógio?'
-        : offer.cor === 'Cor a confirmar' ? ' Qual é a cor do teclado?' : '';
-      const message = `Olá! Gostaria de consultar ${product}, ${colorLabel(offer.cor)}, por ${money(offer.preco)}. Está disponível? ${conditionQuestion(offer.condicao)}${colorQuestion}`;
+      const message = `Olá, tudo bem?\nO ${product}, na cor ${colorLabel(offer.cor)}, por ${money(offer.preco)}, está disponível?`;
       link.href = `https://wa.me/${phone}?text=${encodeURIComponent(message)}`;
       pricing.append(link);
     } else pricing.append(element('small','',demo ? 'Contato indisponível na prévia' : 'Telefone não informado'));

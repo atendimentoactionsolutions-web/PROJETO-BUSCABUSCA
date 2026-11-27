@@ -67,6 +67,54 @@ class SupplierCorrectionTests(unittest.TestCase):
             daily_review.run(root, painel.offer_key, lambda items: rows.extend(items) or len(items))
             self.assertEqual(rows, [])
 
+    def test_ismart_multiline_macbook_is_captured_and_confirmed_in_second_read(self):
+        text = """*💻MacBook Pro M6 chip*
+•14 Polegadas
+•16/1TB
+•12-core CPU & 12-core GPU
+•A3536
+✅SILVER
+✅BLACK
+ *_R$16,750_*
+
+*💻MacBook Pro M5 Pro chip*
+•16 Polegadas
+•24/1TB
+•18-core CPU & 20-core GPU
+•A3428
+✅BLACK
+*_R$19,750_*
+
+*💻MacBook Neo*
+•13 Polegadas
+•8/512GB
+✅SILVER *_R$5,900_*
+✅BLUSH *_R$5,750_*
+
+*_Acessórios 1ªLinha:_*
+•AIRPODS PRO 2 *_R$90_*
+"""
+        with tempfile.TemporaryDirectory() as root:
+            msg = self.message(text)
+            daily_review.save_message(root, msg)
+            reviewed = []
+            daily_review.run(root, painel.offer_key, lambda rows: reviewed.extend(rows) or len(rows))
+            m6 = [r for r in reviewed if r['modelo'] == 'MACBOOK PRO M6 14"']
+            self.assertEqual({(r['capacidade'], r['cor'], r['preco']) for r in m6},
+                             {('16/1TB', 'PRATA', 16750), ('16/1TB', 'PRETO ESPACIAL', 16750)})
+            self.assertEqual({r['preco'] for r in reviewed if 'NEO' in r['modelo']}, {5900, 5750})
+            self.assertEqual({r['capacidade'] for r in reviewed if 'M5 PRO' in r['modelo']}, {'24/1TB'})
+            self.assertFalse(any('AIRPODS' in r['modelo'] for r in reviewed))
+            for row in m6:
+                self.assertIn('14 Polegadas\n16/1TB\n12-core CPU 12-core GPU', row['contextoOriginal'])
+
+    def test_multiline_missing_ram_never_borrows_from_next_mac(self):
+        text = 'MacBook Pro M6 chip\n14 Polegadas\n1TB\nSILVER\nR$16750\nMacBook Pro M5 chip\n14 Polegadas\n16/1TB\nBLACK\nR$13600'
+        rows = parser_listas.parse_supplier_message(text, 'Loja', '123', msg_timestamp=self.ts, include_non_new=True)
+        confirmed = [r for r in rows if price_guardian.validate_product(dict(r), allow_seminovo=True, log_anomalies=False)[0]]
+        self.assertFalse(any('M6' in r['modelo'] for r in confirmed))
+        self.assertEqual(len(confirmed), 1)
+
     def test_no_generative_fallback_can_invent_configuration(self):
         with patch.dict('os.environ', {'GEMINI_API_KEY': 'test'}), patch.object(parser_listas, 'call_gemini_api') as ai:
             rows = parser_listas.parse_supplier_message('MacBook informação incompleta', 'Loja', '123', msg_timestamp=self.ts)

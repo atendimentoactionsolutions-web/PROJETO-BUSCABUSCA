@@ -57,6 +57,9 @@ Este arquivo é carregado automaticamente em **todas as sessões** e auditorias 
 10. **Consenso de preços de iPhone:** comparar dia/modelo/capacidade/cor/condição/tipo de SIM, contando cada fornecedor uma vez. Reter desvio absoluto de pelo menos `max(R$ 800, 8%)` quando pelo menos três outros fornecedores e 75% dos pares concordarem dentro de 4% da mediana. Não substituir o preço pela mediana nem classificar como seminovo apenas pelo preço. Correção explícita passa novamente por todas as validações. Divergência por consenso nunca aciona reclassificação automática para seminovo; registros legados marcados automaticamente como seminovo precisam de evidência no texto original (mantida a regra histórica de modelos descontinuados).
 11. **Faixa permitida de iPhones Seminovos (27/11/2026):** aceitar Seminovos de iPhone **estritamente a partir do iPhone 13 até no máximo o iPhone 17 Pro Max** (`13 <= gen <= 17`). Descartar em todas as camadas (captura WhatsApp `parser_listas.py`, guardião `price_guardian.py` e vitrine `web/catalog.js`) qualquer iPhone Seminovo abaixo do 13 (`7/8/X/XR/XS/SE/11/12`) ou acima do 17 (`18/18 Pro/18 Pro Max/Duo`). iPhone 18 e Duo seguem normalmente em Novos/Lacrados.
 
+11. **Listas verticais (I Smart, 27/11/2026 às 10h04):** modelo, polegadas, RAM/SSD, CPU/GPU, código Axxxx, cores e preço podem estar em linhas separadas. Associar apenas especificações explícitas do mesmo bloco, manter todas as cores com preço compartilhado ou preços próprios e preservar as linhas originais para a releitura. Não inferir RAM nem atravessar o próximo produto. Caso real obrigatório: MacBook Pro M6 14”, 16/1TB, Silver/Black, R$ 16.750.
+12. **Consulta ao fornecedor:** mensagem aprovada: “Olá, tudo bem?\nO [produto detalhado], na cor [cor], por [valor], está disponível?”. Sem perguntas adicionais nem referência a sistema, site, grupo, horário ou origem da oferta.
+
 ---
 
 ## 5. Checklist de Auditoria Diária Obrigatória

@@ -1037,6 +1037,63 @@ def looks_like_product_header(line):
     return False
 
 
+def fold_multiline_device_blocks(lines):
+    """Une somente especificações explícitas; conserva o bloco original como prova."""
+    result, evidence = [], {}
+    i = 0
+    detail = re.compile(
+        r'(?:\d+(?:\.\d+)?\s*(?:POLEGADAS?|INCH|"|MM)|'
+        r'\d+\s*(?:GB|TB)|\d+\s*/\s*\d+\s*(?:GB|TB)|'
+        r'\d+[- ]CORE CPU\s+\d+[- ]CORE GPU|A\d{4}|'
+        r'WI[ -]?FI(?:\s*\+?\s*CELLULAR)?|CELLULAR|GPS)', re.I)
+    while i < len(lines):
+        header = lines[i]
+        if (not re.match(r"^(?:MACBOOK|MAC MINI|MAC STUDIO|IMAC|IPHONE|IPAD)\b", header, re.I)
+                or extract_price_from_line(header) is not None):
+            result.append(header)
+            i += 1
+            continue
+        specs, colors, original = [], [], [header]
+        generated = []
+        j = i + 1
+        while j < len(lines):
+            line = lines[j]
+            if detail.fullmatch(line):
+                # Não escolher entre duas capacidades/tamanhos conflitantes.
+                capacity = extract_capacity(line)
+                if capacity != "-" and any(extract_capacity(previous) not in ("-", capacity) for previous in specs):
+                    break
+                specs.append(line)
+                original.append(line)
+            elif line.upper() in COLOR_ALIASES:
+                colors.append(line)
+                original.append(line)
+            else:
+                color_price = CURRENCY_PRICE.search(line)
+                label = line[:color_price.start()].strip().removesuffix("R").strip() if color_price else ""
+                if specs and not colors and color_price and label.upper() in COLOR_ALIASES:
+                    joined = " ".join([header, *specs, line])
+                    generated.append((joined, [*original, line]))
+                elif specs and re.fullmatch(r"R?\$\s*" + MONEY_NUMBER, line, re.I):
+                    for color in colors or [""]:
+                        joined = " ".join([header, *specs, color, line]).strip()
+                        generated.append((joined, [*original, line]))
+                    j += 1
+                    break
+                else:
+                    break
+            j += 1
+        if generated:
+            for joined, block in generated:
+                result.append(joined)
+                evidence[joined] = block
+            i = j
+        else:
+            result.append(header)
+            i += 1
+    return result, evidence
+
+
 def parse_supplier_message(text, supplier_name, supplier_phone, group_name="", date_str=None, image_base64=None, msg_timestamp=None, include_non_new=False, _gemini_retry=False):
     """
     Lê a mensagem completa (e analisa a foto via OCR se houver) para separar com precisão absoluta
@@ -1101,7 +1158,8 @@ def parse_supplier_message(text, supplier_name, supplier_phone, group_name="", d
     section_seminovo = bool(has_explicit_seminovo and not has_explicit_novo)
 
     lines = [clean_line(l) for l in clean_full_text.splitlines()]
-    lines = expand_watch_price_blocks([l for l in lines if len(l) >= 2])
+    lines, original_blocks = fold_multiline_device_blocks([l for l in lines if len(l) >= 2])
+    lines = expand_watch_price_blocks(lines)
 
     parsed_products = []
     current_header_model = ""
@@ -1352,6 +1410,14 @@ def parse_supplier_message(text, supplier_name, supplier_phone, group_name="", d
                     "hora": time_str,
                     "linhaOriginal": f"{current_header_model} {cap} ({final_color}) - {line}",
                 })
+
+    for item in parsed_products:
+        context = item.get("contextoOriginal", "").splitlines()
+        item["contextoOriginal"] = "\n".join(
+            original_line for part in context for original_line in original_blocks.get(part, [part]))
+        raw = item.get("linhaOriginal", "")
+        if raw in original_blocks:
+            item["linhaOriginal"] = "\n".join(original_blocks[raw])
 
     # Texto gerado por IA não pode virar evidência do fornecedor. Ofertas que
     # o parser não consegue vincular ao original ficam fora do catálogo.

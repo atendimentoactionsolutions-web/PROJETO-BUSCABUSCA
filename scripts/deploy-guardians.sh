@@ -4,7 +4,7 @@ set -euo pipefail
 release="$(cd "$1" && pwd)"
 app=/opt/disparador-fornecedores
 backup="/opt/backups/ofornecedor-guardians-$(date -u +%Y%m%dT%H%M%SZ)"
-files=(painel.py daily_review.py parser_listas.py price_guardian.py whatsapp_bridge.js AGENTS.md tests/test_supplier_corrections.py)
+files=(painel.py daily_review.py parser_listas.py price_guardian.py whatsapp_bridge.js AGENTS.md tests/test_supplier_corrections.py web/catalog-ui.js)
 cd "$release"
 TZ=America/Sao_Paulo python3 -m unittest discover tests
 node --test tests/catalog.test.cjs
