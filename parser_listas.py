@@ -955,11 +955,28 @@ def classify_category(model_name, full_text):
     return "Outros Apple"
 
 
+def is_allowed_seminovo_iphone(model_name):
+    """iPhones Seminovos permitidos estritamente do iPhone 13 até o iPhone 17 Pro Max."""
+    u = str(model_name or "").upper()
+    if "IPHONE" not in u and not re.search(r"\bIP\s*\d", u):
+        return True
+    if "CPO" in u:
+        return True
+    if re.search(r"\b(?:DUO|DOU|FOLD)\b", u):
+        return False
+    m = re.search(r"\b(?:IPHONE|IP)\s*(\d{1,2})(?:E)?\b", u)
+    if not m:
+        return False
+    gen = int(m.group(1))
+    return 13 <= gen <= 17
+
+
 def is_allowed_apple_product(model_name, category, is_semi, allow_seminovo=True):
     """
     Regra Estrita:
     1. Bloqueia Android, videogames e marcas que não sejam Apple.
-    2. Bloqueia seminovos se allow_seminovo for False. Se allow_seminovo=True, permite Apple seminovo.
+    2. Bloqueia seminovos se allow_seminovo for False. Se allow_seminovo=True, permite Apple seminovo
+       (para iPhones Seminovos, estritamente do iPhone 13 até o iPhone 17 Pro Max).
     3. Permite apenas produtos Apple Oficiais: iPhones, MacBook, iPad, Apple Watch, AirPods, iMac, Mac Mini, Acessórios Apple.
     """
     if excluded_power_accessory(model_name):
@@ -967,6 +984,8 @@ def is_allowed_apple_product(model_name, category, is_semi, allow_seminovo=True)
     if is_semi and not allow_seminovo:
         return False
     if category not in ("iPhones", "MacBook & iMac", "iPad", "Apple Watch", "AirPods", "Acessórios Apple"):
+        return False
+    if is_semi and category == "iPhones" and not is_allowed_seminovo_iphone(model_name):
         return False
     u = model_name.upper()
     # Bloqueia Android, videogames e marcas que não sejam Apple.

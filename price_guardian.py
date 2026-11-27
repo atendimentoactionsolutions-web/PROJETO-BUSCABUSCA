@@ -23,6 +23,22 @@ def _is_seminovo_condition(cond, cat=""):
     return bool(re.search(r"\b(?:semi[\s-]*nov[oa]s?|vitrine|swap|usad[oa]s?|grade\s*[ab]\+?|as\s*is|asis|[aá]sis|ativad[oa]s?|deslacrad[oa]s?|open\s*box|caixa\s*aberta|recondicionad[oa]s?)\b", c))
 
 
+def _is_allowed_seminovo_iphone(model_name):
+    """iPhones Seminovos permitidos estritamente a partir do iPhone 13 até o iPhone 17 Pro Max."""
+    u = str(model_name or "").upper()
+    if "IPHONE" not in u:
+        return True
+    if "CPO" in u:
+        return True
+    if re.search(r"\b(?:DUO|DOU|FOLD)\b", u):
+        return False
+    m = re.search(r"\bIPHONE\s*(\d{1,2})(?:E)?\b", u)
+    if not m:
+        return False
+    gen = int(m.group(1))
+    return 13 <= gen <= 17
+
+
 # Modelos de iPhone descontinuados que NÃO existem mais Novos/Lacrados (apenas Seminovo ou CPO)
 DISCONTINUED_NEW_IPHONE_RE = re.compile(
     r"\bIPHONE\s+(?:[78]|X[RS]?|SE(?:\s*[23])?|11|12|13|14\s+(?:PLUS|PRO))\b",
@@ -910,6 +926,8 @@ def validate_product(product, existing_day_products=None, log_anomalies=True, al
         return _reject("CONDICAO_SEMINOVO_SEM_EVIDENCIA")
     if is_seminovo and not allow_seminovo:
         return _reject(f"SEMINOVO_REJEITADO: {product.get('condicao')}", "SEMINOVO_BLOQUEADO")
+    if is_seminovo and not is_cpo and not _is_allowed_seminovo_iphone(raw_model):
+        return _reject(f"SEMINOVO_IPHONE_FORA_DA_FAIXA: {raw_model}", "SEMINOVO_FORA_DA_FAIXA")
     if is_seminovo and not product.get("condicao"):
         product["condicao"] = "Seminovo"
 
@@ -920,9 +938,11 @@ def validate_product(product, existing_day_products=None, log_anomalies=True, al
 
     # 2.8. Modelos descontinuados que não existem mais novos/lacrados (ex: 11, 12, 13, 14 Plus/Pro/Pro Max)
     if not is_cpo and not is_seminovo and DISCONTINUED_NEW_IPHONE_RE.search(raw_model):
-        if allow_seminovo:
+        if allow_seminovo and _is_allowed_seminovo_iphone(raw_model):
             is_seminovo = True
             product["condicao"] = "Seminovo"
+        elif allow_seminovo:
+            return _reject(f"SEMINOVO_IPHONE_FORA_DA_FAIXA: {raw_model}", "SEMINOVO_FORA_DA_FAIXA")
         else:
             return _reject(f"MODELO_DESCONTINUADO_NOVO: {raw_model}", "SEMINOVO_BLOQUEADO")
 

@@ -441,12 +441,19 @@ class ReviewTests(unittest.TestCase):
         self.assertTrue(ok_15_low)
         self.assertEqual(item_15_low['condicao'], 'Seminovo')
 
-        ok_12, _, item_12 = validate_product(
+        ok_13, _, item_13 = validate_product(
+            {'modelo': 'IPHONE 13 PRO', 'capacidade': '256GB', 'cor': 'GRAFITE', 'preco': 2650, 'condicao': 'Condição não informada'},
+            allow_seminovo=True, log_anomalies=False,
+        )
+        self.assertTrue(ok_13)
+        self.assertEqual(item_13['condicao'], 'Seminovo')
+
+        ok_12, reason_12, _ = validate_product(
             {'modelo': 'IPHONE 12 PRO', 'capacidade': '256GB', 'cor': 'GRAFITE', 'preco': 1750, 'condicao': 'Condição não informada'},
             allow_seminovo=True, log_anomalies=False,
         )
-        self.assertTrue(ok_12)
-        self.assertEqual(item_12['condicao'], 'Seminovo')
+        self.assertFalse(ok_12)
+        self.assertEqual(reason_12, 'SEMINOVO_FORA_DA_FAIXA')
 
         self.assertFalse(validate_product(
             {'modelo': 'IPHONE DUO PRO MAX', 'capacidade': '256GB', 'cor': 'PRETO', 'preco': 8850, 'condicao': 'Novo / Lacrado'},

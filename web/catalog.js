@@ -993,6 +993,12 @@ export function groupProducts(products) {
     if ((category === 'mac' || category === 'imac') && (!/\bram\b/i.test(capacity) || !hasStorage)) continue;
     if (category === 'mac' && /\bmacbook\b/.test(model) && !/\b(13|14|15|16)"/.test(model)) continue;
     if ((category === 'iphone' || category === 'ipad' || ((category === 'cpo' || category === 'seminovos') && /\b(iphone|ipad)\b/.test(model) && !/\b(?:keyboard|teclado|pencil|capa|folio)\b/.test(model))) && !hasStorage) continue;
+    if (category === 'seminovos' && /\biphone\b/.test(model)) {
+      if (/\b(?:duo|dou|fold)\b/.test(model)) continue;
+      const gm = model.match(/\biphone\s*(\d{1,2})(?:e)?\b/);
+      const gen = gm ? parseInt(gm[1], 10) : 0;
+      if (gen < 13 || gen > 17) continue;
+    }
     if (category === 'ipad' && /\bipad\s+(?:pro|air\s*m[2-5])\b/.test(model) && !/\b(10\.9|11|12\.9|13)"/.test(model)) continue;
     if (category === 'watch' && (!/\b\d{2}\s*mm\b/i.test(capacity) || !/\bapple\s+watch\s+(?:ultra(?:\s*[2-9])?|s(?:1[0-9]|9)|se(?:\s*[2-9])?)\b/.test(model))) continue;
     const key = [category,model,capacity,normalize(condition)].join('|');

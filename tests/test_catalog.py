@@ -119,8 +119,10 @@ class CatalogTests(unittest.TestCase):
         seed = [
             # Fake AirPods R$ 58 -> deve ser removido
             dict(modelo='AIRPODS PRO 2', categoria='AirPods', capacidade='-', cor='BRANCO', preco=58, condicao='Condição não informada', fornecedor='Melk', data=today, hora='10:00:00'),
-            # iPhone 12 Pro como Novo -> deve ser reclassificado para Seminovo
-            dict(modelo='IPHONE 12 PRO', categoria='iPhones', capacidade='256GB', cor='GRAFITE', preco=1750, condicao='Condição não informada', fornecedor='MeuCelular', data=today, hora='10:00:00'),
+            # iPhone 13 Pro como Novo -> deve ser reclassificado para Seminovo (13..17 permitido)
+            dict(modelo='IPHONE 13 PRO', categoria='iPhones', capacidade='256GB', cor='GRAFITE', preco=2650, condicao='Condição não informada', fornecedor='MeuCelular', data=today, hora='10:00:00'),
+            # iPhone 12 Pro -> abaixo do iPhone 13 em Seminovos -> deve ser removido
+            dict(modelo='IPHONE 12 PRO', categoria='iPhones', capacidade='256GB', cor='GRAFITE', preco=1750, condicao='Seminovo', fornecedor='MeuCelular', data=today, hora='10:00:00'),
             # Consenso de iPhone 15 128GB Novo (~R$ 4000) + 1 oferta sem rótulo a R$ 2450 -> deve virar Seminovo
             dict(modelo='IPHONE 15', categoria='iPhones', capacidade='128GB', cor='PRETO', preco=3950, condicao='Novo / Lacrado', fornecedor='F1', data=today, hora='10:00:00'),
             dict(modelo='IPHONE 15', categoria='iPhones', capacidade='128GB', cor='AZUL', preco=4000, condicao='Novo / Lacrado', fornecedor='F2', data=today, hora='10:00:00'),
@@ -135,15 +137,16 @@ class CatalogTests(unittest.TestCase):
         with patch.object(painel, 'BASE_DIR', self.folder.name):
             report = painel.perform_guardian_sweep(log_anomalies=False)
         self.assertTrue(report['changed'])
-        self.assertEqual(report['removed'], 2)       # AirPods R$ 58 + iPhone 17 Pro 512GB invertido
-        self.assertEqual(report['reclassified'], 2)  # iPhone 12 Pro + iPhone 15 Rosa R$ 2450
+        self.assertEqual(report['removed'], 3)       # AirPods R$ 58 + iPhone 12 Pro (<13) + iPhone 17 Pro 512GB invertido
+        self.assertEqual(report['reclassified'], 2)  # iPhone 13 Pro + iPhone 15 Rosa R$ 2450
         healed = painel.load_produtos()
         self.assertFalse(any(p['modelo'] == 'AIRPODS PRO 2' for p in healed))
+        self.assertFalse(any(p['modelo'] == 'IPHONE 12 PRO' for p in healed))
         self.assertFalse(any(p['modelo'] == 'IPHONE 17 PRO' and p['capacidade'] == '512GB' for p in healed))
         ip15_rosa = next(p for p in healed if p['modelo'] == 'IPHONE 15' and p['cor'] == 'ROSA')
         self.assertEqual(ip15_rosa['condicao'], 'Seminovo')
-        ip12_pro = next(p for p in healed if p['modelo'] == 'IPHONE 12 PRO')
-        self.assertEqual(ip12_pro['condicao'], 'Seminovo')
+        ip13_pro = next(p for p in healed if p['modelo'] == 'IPHONE 13 PRO')
+        self.assertEqual(ip13_pro['condicao'], 'Seminovo')
 
         # Releitura (daily_review) NÃO pode reinserir exatamente a mesma oferta removida pela Vistoria 5min (fim do vai-e-volta 34->33)
         with patch.object(painel, 'BASE_DIR', self.folder.name):

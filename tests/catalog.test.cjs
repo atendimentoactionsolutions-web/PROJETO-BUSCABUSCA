@@ -458,3 +458,21 @@ test('Apple Watch Ultra 4 never displays Burgundy band as case color and heals B
   assert.deepEqual(groups[0].variants.map(v => v.key).sort(), ['black titanium', 'natural titanium']);
   assert.equal(groups[0].variants.find(v => v.key === 'black titanium').minimum, 5350);
 });
+
+test('iPhones Seminovos allow strictly iPhone 13 through iPhone 17 Pro Max', async () => {
+  const { groupProducts } = await import('../web/catalog.js');
+  const groups = groupProducts([
+    { ...base, modelo: 'IPHONE XR', capacidade: '64GB', cor: 'PRETO', condicao: 'Seminovo', preco: 1100 },
+    { ...base, modelo: 'IPHONE 11', capacidade: '128GB', cor: 'PRETO', condicao: 'Seminovo', preco: 1450 },
+    { ...base, modelo: 'IPHONE 12 PRO MAX', capacidade: '256GB', cor: 'GRAFITE', condicao: 'Seminovo', preco: 2400 },
+    { ...base, modelo: 'IPHONE 13', capacidade: '128GB', cor: 'MEIA-NOITE', condicao: 'Seminovo', preco: 2100 },
+    { ...base, modelo: 'IPHONE 17 PRO MAX', capacidade: '256GB', cor: 'LARANJA', condicao: 'Seminovo', preco: 6900 },
+    { ...base, modelo: 'IPHONE 18 PRO MAX', capacidade: '256GB', cor: 'PRETO', condicao: 'Seminovo', preco: 7900 },
+    { ...base, modelo: 'IPHONE DUO', capacidade: '256GB', cor: 'PRETO', condicao: 'Seminovo', preco: 12000 },
+    { ...base, modelo: 'IPHONE 18 PRO MAX', capacidade: '256GB', cor: 'PRETO', condicao: 'Novo / Lacrado', preco: 8500 },
+  ]);
+  const semiModels = groups.filter(g => g.category === 'seminovos').map(g => g.model).sort();
+  const newModels = groups.filter(g => g.category === 'iphone').map(g => g.model);
+  assert.deepEqual(semiModels, ['iPhone 13', 'iPhone 17 Pro Max']);
+  assert.deepEqual(newModels, ['iPhone 18 Pro Max']);
+});
