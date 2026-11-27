@@ -38,6 +38,7 @@ done
 cp "$release/web/"*.html "$release/web/"*.css "$release/web/"*.js "$app/web/"
 cp "$release/tests/"*.py "$release/tests/"*.cjs "$app/tests/"
 cp "$release/scripts/deploy-vps.sh" "$app/scripts/deploy-vps.sh"
+cp "$release/scripts/review_catalog.py" "$app/scripts/review_catalog.py"
 cp "$release/scripts/audit_display.mjs" "$app/scripts/"
 cp "$release/scripts/patch-baileys.cjs" "$app/scripts/patch-baileys.cjs"
 for file in audit_prods.cjs clean_groups.cjs purge_unwanted.cjs price_guardian.cjs disparador.py delivery_tracking.js; do
