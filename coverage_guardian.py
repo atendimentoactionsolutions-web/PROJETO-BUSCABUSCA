@@ -192,6 +192,9 @@ def evaluate_coverage(
 
     if wa_conn != "CONNECTED":
         issues.append(f"WhatsApp fora do ar ({wa_conn})")
+    elif not isinstance(participating_groups, list):
+        issues.append("Não foi possível conferir os grupos participantes do WhatsApp")
+        needs_recovery = True
     if unmonitored_groups:
         issues.append(f"{len(unmonitored_groups)} grupo(s)/comunidade(s) fora do monitoramento")
         needs_recovery = True

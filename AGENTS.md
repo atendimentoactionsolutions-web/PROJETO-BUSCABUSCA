@@ -35,7 +35,7 @@ Este arquivo é carregado automaticamente em **todas as sessões** e auditorias 
 | **Revisão / Atualização** | `daily_review.py` / `daily_review_worker` | `10 min` (`600s`) | Reprocessa listas do dia respeitando `quarentena_guardiao.json` para não ressuscitar erro já limpo. |
 | **Auditor de Cobertura** | `coverage_guardian.py` / `coverage_guardian_worker` | `10 min` (`600s`) | Confere 100% dos grupos/comunidades (`@g.us`), canais (`@newsletter`) e contatos privados, fila de captura e silêncio > 25 min (`08h–17h`). Recuperação `/api/scan-archived` com cooldown de `30 min`. |
 
-- **Performance obrigatória:** manter cache em memória de `/api/products` (separado `base` vs `dfu`, invalidado em `save_produtos()`), compressão `gzip`, `ETag`/`304 Not Modified`, atualização do navegador a cada `120s` (pausada em aba oculta) + busca instantânea e botão manual **Atualizar**.
+- **Performance obrigatória:** manter cache em memória de `/api/products` (separado `base` vs `dfu`, invalidado em `save_produtos()`), compressão `gzip`, `ETag`/`304 Not Modified`, atualização do navegador a cada `120s` (pausada em aba oculta) e botão manual **Atualizar**.
 
 ---
 
@@ -58,7 +58,7 @@ Este arquivo é carregado automaticamente em **todas as sessões** e auditorias 
 11. **Faixa permitida de iPhones Seminovos (27/11/2026):** aceitar Seminovos de iPhone **estritamente a partir do iPhone 13 até no máximo o iPhone 17 Pro Max** (`13 <= gen <= 17`). Descartar em todas as camadas (captura WhatsApp `parser_listas.py`, guardião `price_guardian.py` e vitrine `web/catalog.js`) qualquer iPhone Seminovo abaixo do 13 (`7/8/X/XR/XS/SE/11/12`) ou acima do 17 (`18/18 Pro/18 Pro Max/Duo`). iPhone 18 e Duo seguem normalmente em Novos/Lacrados.
 
 11. **Listas verticais (I Smart, 27/11/2026 às 10h04):** modelo, polegadas, RAM/SSD, CPU/GPU, código Axxxx, cores e preço podem estar em linhas separadas. Associar apenas especificações explícitas do mesmo bloco, manter todas as cores com preço compartilhado ou preços próprios e preservar as linhas originais para a releitura. Não inferir RAM nem atravessar o próximo produto. Caso real obrigatório: MacBook Pro M6 14”, 16/1TB, Silver/Black, R$ 16.750.
-12. **Consulta ao fornecedor:** mensagem aprovada: “Olá, tudo bem?\nO [produto detalhado], na cor [cor], por [valor], está disponível?”. Sem perguntas adicionais nem referência a sistema, site, grupo, horário ou origem da oferta.
+12. **Mensagens a fornecedores desativadas:** não oferecer campanhas, modelos de texto, envio individual ou endpoints de envio/recibos. Preservar arquivos históricos de configuração e envios sem alterá-los. A captura continua somente de entrada; monitoramento de convites e comunidades permanece separado.
 13. **Auditoria de listas e cores/configurações reais (27/11/2026):**
     - `COLOR_ALIASES` em `parser_listas.py` inclui `GLACIAL`/`BORDÔ`/`BORDO`/`LILÁS` para não descartar variantes válidas de iPhone 18 Pro / 18 Pro Max / 14 nem quebrar `evidence_block()`.
     - `mac_mini_capacity()` + `_is_mac_model()` extraem RAM/SSD em qualquer MacBook/iMac/Mac Mini/Mac Studio (incluindo `TB`, `256GB/8` e `512GB ... 16GB`), preservando a exigência de RAM explícita no bloco original.
@@ -66,6 +66,10 @@ Este arquivo é carregado automaticamente em **todas as sessões** e auditorias 
 14. **Robô de cor por emoji & ortografia de atacado (27/11/2026):**
     - `color_guardian.resolve_emoji_color(raw_line, model_name)` resolve cor apenas quando existe **1 único emoji de cor** na linha e ele mapeia de forma unívoca (`len(matches) == 1`) para a paleta oficial do modelo em `OFFICIAL_MODEL_COLOR_RULES`. Linhas com 2+ emojis distintos (`🤍🖤4100`), Watch sem indicação de `CAIXA`, ou AirPods Max são descartadas (`None`), mantendo a regra "na dúvida descarta".
     - `parser_listas.py` separa `R$`/`$` colado à cor (`BurgundyR$:8750`), reconhece preços inteiros isolados com emoji (`🤍1750`, `🖤2450(marcas de uso)`), normaliza cabeçalhos seminovos com porcentagem de bateria (`13 pro 256 85+`) e aceita erros comuns de digitação (`BURGANDY`, `BRUGUNDY`, `SIIVER`, `LARNAJA`, `LILAIS`, `LEILAS`, `VIOLETA`, `WIHTE`, `LAVAND`, `ULTRAMINE`, `NIGHT SHY`, `DK BRONSE`).
+15. **Cache concorrente do catálogo:** uma reconstrução iniciada antes de `save_produtos()` não pode publicar uma versão antiga depois da invalidação; validar a versão do cache e refazer a leitura quando houver invalidação durante a reconstrução.
+16. **Auditoria de cobertura sem dados de grupos:** se o WhatsApp estiver `CONNECTED`, uma falha/ausência da lista de `/api/groups` nunca pode ser tratada como cobertura vazia e status `OK`; registrar pendência e acionar recuperação com cooldown.
+17. **Vitrine simplificada (27/11/2026):** não exibir resumo de quantidade de modelos/variações, campo de busca nem seletor de itens por página. Manter navegação por categorias e botão de carregamento progressivo.
+18. **Central administrativa focada e robôs observáveis:** manter `/admin` voltado a contas, captura WhatsApp, grupos/comunidades, cobertura e estado dos robôs. Não carregar listas/históricos de mensagens no estado do painel; exibir falhas de consulta e execução explicitamente. Preservar os intervalos atuais dos robôs (3/5/10 min).
 
 ---
 

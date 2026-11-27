@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f7f9fc">
+  <title>O Fornecedor · Gestão e monitoramento</title>
+  <link rel="stylesheet" href="/admin.css">
+  <script type="module" src="/admin.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <div>
+      <a class="brand" href="/">O Fornecedor</a>
+      <p>Gestão de clientes e monitoramento da captura ao vivo</p>
+    </div>
+    <nav>
+      <a class="button secondary" href="/">Voltar ao buscador</a>
+      <button class="button secondary" id="refreshButton" type="button">Atualizar painel</button>
+      <button class="button secondary" id="logoutButton" type="button">Sair</button>
+    </nav>
+  </header>
+
+  <main>
+    <section class="card accounts">
+      <div class="section-heading">
+        <div>
+          <h1>Acessos de clientes</h1>
+          <p>Contas cadastradas, vencimento e último acesso.</p>
+        </div>
+        <div class="account-counts" id="accountCounts" aria-live="polite"></div>
+      </div>
+      <form id="createAccountForm" class="create-account">
+        <label>Nome / loja<input name="name" autocomplete="organization" placeholder="Nome do cliente"></label>
+        <label>Usuário<input name="username" autocomplete="off" required></label>
+        <label>Senha<input name="password" type="password" autocomplete="new-password" minlength="3" required></label>
+        <label>Vencimento opcional<input name="expires_at" type="date"></label>
+        <button class="button primary" type="submit">Criar acesso</button>
+      </form>
+      <p class="feedback" id="accountFeedback" role="status" hidden></p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Usuário</th><th>Nome / loja</th><th>Perfil</th><th>Status</th><th>Vencimento</th><th>Último acesso</th><th>Ações</th></tr></thead>
+          <tbody id="accountsBody"><tr><td colspan="7">Carregando contas…</td></tr></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="section-heading">
+        <div>
+          <h2>Captura ao vivo</h2>
+          <p id="updatedAt">Aguardando atualização…</p>
+        </div>
+        <span class="badge" id="whatsappBadge">Verificando conexão</span>
+      </div>
+      <div class="stats">
+        <article><span>Fila pendente</span><strong id="capturePending">—</strong></article>
+        <article><span>Falhas na fila</span><strong id="captureFailed">—</strong></article>
+        <article><span>Ofertas de hoje</span><strong id="productsToday">—</strong></article>
+        <article><span>Convites pendentes</span><strong id="invitesPending">—</strong></article>
+      </div>
+      <p class="capture-detail" id="captureDetail">Carregando estado da captura…</p>
+      <p class="feedback error" id="monitorError" role="status" hidden></p>
+    </section>
+
+    <section class="card">
+      <div class="section-heading">
+        <div>
+          <h2>Robôs de qualidade e cobertura</h2>
+          <p>Intervalos operacionais mantidos para proteger a VPS.</p>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Robô</th><th>Intervalo</th><th>Estado</th><th>Última execução</th><th>Detalhe</th></tr></thead>
+          <tbody id="robotsBody"><tr><td colspan="5">Aguardando os robôs…</td></tr></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="section-heading">
+        <div>
+          <h2>Comunidades e grupos WhatsApp</h2>
+          <p id="groupsUpdated">Aguardando lista de grupos…</p>
+        </div>
+        <button class="button secondary" id="auditButton" type="button">Auditar cobertura</button>
+      </div>
+      <form id="joinCommunityForm" class="join-form">
+        <label>Link de convite de fornecedor<input name="invite" placeholder="chat.whatsapp.com/…" autocomplete="off" required></label>
+        <button class="button primary" type="submit">Validar e entrar</button>
+      </form>
+      <p class="hint">Convites são validados pelo escopo de fornecedores; comunidades fora do escopo não são aceitas.</p>
+      <div class="coverage-summary" id="coverageSummary">Aguardando auditoria de cobertura…</div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Comunidade / grupo</th><th>Identificador</th><th>Participantes</th><th>Escopo</th><th>Captura</th></tr></thead>
+          <tbody id="groupsBody"><tr><td colspan="5">Carregando grupos…</td></tr></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

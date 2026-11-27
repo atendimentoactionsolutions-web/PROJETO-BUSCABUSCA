@@ -6,7 +6,6 @@ import { fileURLToPath } from 'url';
 import QRCode from 'qrcode';
 import pino from 'pino';
 import { InviteQueue } from './invite_queue.js';
-import { sentMessageReceipt } from './delivery_tracking.js';
 import { projectInviteDecision, createBlockedMembershipGuard } from './invite_policy.js';
 import { CaptureQueue, deliverCapture, supplierEventTime, withTimeout } from './capture_queue.js';
 
@@ -189,50 +188,6 @@ const captureQueue = new CaptureQueue({
   }
 });
 
-const outgoingMessages = new Map();
-const earlyMessageAcks = new Map();
-const pendingAckFile = path.join(__dirname, 'confirmacoes_pendentes.json');
-const pendingAcks = new Map();
-if (fs.existsSync(pendingAckFile)) {
-  for (const item of readJsonSafe(pendingAckFile)) pendingAcks.set(item.messageId, item);
-}
-try {
-  const historyPath = path.join(__dirname, 'historico_envios.json');
-  if (fs.existsSync(historyPath)) {
-    for (const item of Object.values(readJsonSafe(historyPath))) {
-      if (item.message_id && item.jid) outgoingMessages.set(item.message_id, item.jid);
-    }
-  }
-} catch (error) { addLog(`Aviso ao carregar IDs enviados: ${error.message}`); }
-let flushingAcks = false;
-async function flushMessageAcks() {
-  if (flushingAcks || stopping) return;
-  flushingAcks = true;
-  try {
-    for (const [id, item] of pendingAcks) {
-      try {
-        const response = await fetch(`http://127.0.0.1:${PANEL_PORT}/api/internal/message-ack`, {
-          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(item), signal: AbortSignal.timeout(8000)
-        });
-        if (response.ok && (await response.json()).recorded && pendingAcks.get(id) === item) {
-          pendingAcks.delete(id);
-          writeJsonAtomic(pendingAckFile, [...pendingAcks.values()]);
-        }
-      } catch (error) { addLog(`Confirmação pendente de gravação: ${error.message}`); break; }
-    }
-  } finally { flushingAcks = false; }
-}
-function queueMessageAck(messageId, status) {
-  const phone = outgoingMessages.get(messageId);
-  if (!phone || !Number.isInteger(status) || status < 0 || status > 5) return;
-  const previous = pendingAcks.get(messageId);
-  if (previous && previous.status >= status) return;
-  pendingAcks.set(messageId, { phone, messageId, status });
-  writeJsonAtomic(pendingAckFile, [...pendingAcks.values()]);
-  void flushMessageAcks();
-}
-setInterval(() => void flushMessageAcks(), 10000).unref();
-
 function writeJsonAtomic(filePath, value) {
   const temporary = `${filePath}.${process.pid}.tmp`;
   fs.writeFileSync(temporary, JSON.stringify(value, null, 2), { mode: 0o600 });
@@ -313,45 +268,6 @@ function loadRealMessageAnchors() {
         for (const [jid, val] of Object.entries(obj)) {
           if (jid && val?.key?.id && !String(val.key.id).startsWith('ARCHIVE_')) {
             realMessageAnchorsMap.set(jid, val);
-          }
-        }
-      }
-    }
-    const repliesFile = path.join(__dirname, 'respostas_fornecedores.json');
-    if (fs.existsSync(repliesFile)) {
-      const replies = readJsonSafe(repliesFile);
-      if (replies && typeof replies === 'object') {
-        for (const item of Object.values(replies)) {
-          const digits = String(item?.telefone || '').replace(/\D/g, '');
-          const msgId = String(item?.message_id || '').trim();
-          const ts = Number(item?.timestamp || 0);
-          if (!digits || !msgId || ts <= 0) continue;
-          const jid = `${digits}@s.whatsapp.net`;
-          const prevTs = Number(realMessageAnchorsMap.get(jid)?.messageTimestamp || 0);
-          if (ts >= prevTs) {
-            realMessageAnchorsMap.set(jid, {
-              key: { remoteJid: jid, id: msgId, fromMe: false },
-              messageTimestamp: ts
-            });
-          }
-        }
-      }
-    }
-    const histFile = path.join(__dirname, 'historico_envios.json');
-    if (fs.existsSync(histFile)) {
-      const hist = readJsonSafe(histFile);
-      if (hist && typeof hist === 'object') {
-        for (const item of Object.values(hist)) {
-          const digits = String(item?.telefone || '').replace(/\D/g, '');
-          const jid = String(item?.jid || (digits ? `${digits}@s.whatsapp.net` : '')).trim();
-          const msgId = String(item?.message_id || '').trim();
-          const ts = Number(item?.tentativa_timestamp || 0);
-          if (!jid || !msgId) continue;
-          if (!realMessageAnchorsMap.has(jid)) {
-            realMessageAnchorsMap.set(jid, {
-              key: { remoteJid: jid, id: msgId, fromMe: true },
-              messageTimestamp: ts > 0 ? Math.floor(ts) : Math.floor(Date.now() / 1000)
-            });
           }
         }
       }
@@ -1174,14 +1090,6 @@ function enqueueSupplierInvites(msg) {
   }
 }
 
-function isSupplierReplyContent(message) {
-  if (!message || typeof message !== 'object') return false;
-  for (const wrapper of ['ephemeralMessage', 'viewOnceMessage', 'viewOnceMessageV2', 'documentWithCaptionMessage']) {
-    if (message[wrapper]?.message) return isSupplierReplyContent(message[wrapper].message);
-  }
-  return !!extractPlainTextFromMessage(message).trim() || ['imageMessage','audioMessage','videoMessage','documentMessage','stickerMessage','contactMessage','contactsArrayMessage','locationMessage','liveLocationMessage','reactionMessage','buttonsResponseMessage','listResponseMessage'].some(type => !!message[type]);
-}
-
 async function inspectIncomingMessage(msg, options = {}) {
   if (!msg || !msg.message) return;
   lastReceivedAt = Date.now();
@@ -1220,20 +1128,6 @@ async function inspectIncomingMessage(msg, options = {}) {
   if (!msg.key?.fromMe) await forwardMessageToProductParser(msg, options);
   if (remoteJid.endsWith('@g.us')) {
     void archiveChatJid(remoteJid, '', '', '', false).catch(error => addLog(`[ARQUIVO] ${error.message}`));
-  }
-
-
-  // Track every direct supplier response, including short replies and history sync.
-  if (!msg.key?.fromMe && !remoteJid.endsWith('@g.us') && !remoteJid.endsWith('@broadcast') && isSupplierReplyContent(msg.message)) {
-    const phoneJid = resolveLidJid(msg.key?.remoteJidAlt || remoteJid);
-    try {
-      const response = await fetch(`http://127.0.0.1:${PANEL_PORT}/api/internal/supplier-reply`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone: phoneJid, timestamp: Number(msg.messageTimestamp || 0), messageId: msg.key?.id || '' }),
-        signal: AbortSignal.timeout(10000)
-      });
-      if (!response.ok) addLog(`Registro de resposta retornou HTTP ${response.status}`);
-    } catch (err) { addLog(`Falha ao registrar resposta: ${err.message}`); }
   }
 
 }
@@ -1524,12 +1418,6 @@ async function startWhatsApp() {
 
     waSocket.ev.on('messages.update', async updates => {
       for (const { key, update } of updates || []) {
-        if (key?.fromMe && key.id && Number.isInteger(update?.status)) {
-          earlyMessageAcks.set(key.id, Math.max(earlyMessageAcks.get(key.id) || 0, update.status));
-          if (earlyMessageAcks.size > 2000) earlyMessageAcks.delete(earlyMessageAcks.keys().next().value);
-          queueMessageAck(key.id, update.status);
-          continue;
-        }
         if (!key?.fromMe && update?.message) {
           const editedInner =
             update.message.editedMessage?.message ||
@@ -1600,29 +1488,6 @@ async function startWhatsApp() {
   }
 }
 
-async function resolveWhatsAppJid(rawPhone) {
-  const digits = String(rawPhone || '').replace(/\D/g, '');
-  if (!digits) return null;
-
-  const candidates = [digits];
-  if (digits.startsWith('55') && digits.length === 13) {
-    candidates.push(digits.slice(0, 4) + digits.slice(5));
-  } else if (digits.startsWith('55') && digits.length === 12) {
-    candidates.push(digits.slice(0, 4) + '9' + digits.slice(4));
-  }
-
-  for (const cand of candidates) {
-    try {
-      const results = await waSocket.onWhatsApp(`${cand}@s.whatsapp.net`);
-      if (results && results.length > 0 && results[0].exists) {
-        return results[0].jid;
-      }
-    } catch {}
-  }
-
-  return `${digits}@s.whatsapp.net`;
-}
-
 app.get('/api/status', (req, res) => {
   const communitiesList = Array.from(joinedCommunitiesMap.values());
   const basePayload = {
@@ -1653,51 +1518,6 @@ app.get('/api/status', (req, res) => {
   });
 });
 
-app.post('/api/send', async (req, res) => {
-  const { phone, name, message } = req.body || {};
-  if (AUTOMATION_PAUSED || connectionStatus !== 'CONNECTED' || !waSocket) {
-    return res.status(400).json({ ok: false, error: 'WhatsApp não está conectado.' });
-  }
-  if (!phone || !message) {
-    return res.status(400).json({ ok: false, error: 'Telefone e mensagem são obrigatórios.' });
-  }
-
-  try {
-    const jid = await resolveWhatsAppJid(phone);
-    for (const v of normalizePhoneDigits(phone)) {
-      knownSupplierDigits.add(v);
-    }
-    if (name) contactNameCache.set(jid, name);
-
-    try {
-      await waSocket.presenceSubscribe(jid);
-      await waSocket.sendPresenceUpdate('composing', jid);
-      const typingMs = Math.min(7000, Math.max(2200, message.length * 45 + Math.floor(Math.random() * 1400)));
-      await new Promise((r) => setTimeout(r, typingMs));
-      await waSocket.sendPresenceUpdate('paused', jid);
-    } catch {}
-
-    const sentMsg = await waSocket.sendMessage(jid, { text: message });
-    const receipt = sentMessageReceipt(sentMsg, jid);
-    chatLastMsgMap.set(jid, sentMsg);
-    outgoingMessages.set(receipt.messageId, jid);
-    if (earlyMessageAcks.has(receipt.messageId)) receipt.ack = Math.max(receipt.ack, earlyMessageAcks.get(receipt.messageId));
-    for (let i = 0; i < 16 && receipt.ack < 2; i++) {
-      await new Promise((r) => setTimeout(r, 150));
-      const updatedAck = earlyMessageAcks.get(receipt.messageId);
-      if (updatedAck !== undefined) receipt.ack = Math.max(receipt.ack, updatedAck);
-    }
-    queueMessageAck(receipt.messageId, receipt.ack);
-    addLog(`[MENSAGEM] Criada para ${name || phone}; ID ${receipt.messageId}; confirmação ${receipt.ack}.`);
-    // Garantir que a conversa individual fique visível (desarquivada) no WhatsApp do usuário
-    try { await unarchiveChatJid(jid); } catch {}
-    return res.json({ ok: true, ...receipt });
-  } catch (err) {
-    addLog(`[ERRO] Erro ao enviar para ${name || phone}: ${err.message}`);
-    return res.status(500).json({ ok: false, error: err.message });
-  }
-});
-
 app.post('/api/join-community', async (req, res) => {
   const { linkOrCode } = req.body || {};
   if (AUTOMATION_PAUSED || connectionStatus !== 'CONNECTED' || !waSocket) {
@@ -1712,18 +1532,6 @@ app.post('/api/join-community', async (req, res) => {
   if (!result) return res.status(409).json({ ok: false, error: 'Este convite já está sendo processado. Aguarde.' });
   if (['ERRO', 'FORA_ESCOPO', 'REVISAR_ESCOPO'].includes(result.status)) return res.status(422).json({ ok: false, error: result.error, result });
   res.json({ ok: true, result });
-});
-
-app.post('/api/archive-all', async (req, res) => {
-  if (AUTOMATION_PAUSED || connectionStatus !== 'CONNECTED' || !waSocket) {
-    return res.status(400).json({ ok: false, error: 'WhatsApp não está conectado.' });
-  }
-  const scanRes = await deepScanAllArchivedAndCommunities();
-  res.json({
-    ok: true,
-    groupCount: scanRes.monitoredCount || 0,
-    chatCount: scanRes.historyRequestsSent || 0
-  });
 });
 
 app.post('/api/scan-archived', async (req, res) => {
@@ -1752,6 +1560,7 @@ app.get('/api/groups', async (req, res) => {
         isCommunityAnnounce: !!g.isCommunityAnnounce,
         linkedParent: g.linkedParent || '',
         blacklisted: blockedOrExcluded,
+        monitored: monitoredArchivedMap.has(g.id),
         decision
       };
     });
@@ -1911,24 +1720,6 @@ app.post('/api/scan-supplier-invites', async (req, res) => {
   const candidates = [];
   const seenKeys = new Set();
 
-  const resolveLidFileForPhone = (phoneDigits) => {
-    const clean = String(phoneDigits || '').replace(/\D/g, '');
-    if (!clean) return '';
-    const variants = [clean];
-    if (clean.startsWith('55') && clean.length === 13) variants.push(clean.slice(0, 4) + clean.slice(5));
-    if (clean.startsWith('55') && clean.length === 12) variants.push(clean.slice(0, 4) + '9' + clean.slice(4));
-    for (const v of variants) {
-      const fp = path.join(authFolder, `lid-mapping-${v}.json`);
-      if (fs.existsSync(fp)) {
-        try {
-          const raw = fs.readFileSync(fp, 'utf8').trim().replace(/^"|"$/g, '');
-          if (raw) return `${raw}@lid`;
-        } catch {}
-      }
-    }
-    return '';
-  };
-
   const addCandidate = (keyObj, ts) => {
     if (!keyObj?.remoteJid || !keyObj?.id) return;
     const dedupe = `${keyObj.remoteJid}:${keyObj.id}`;
@@ -1943,21 +1734,6 @@ app.post('/api/scan-supplier-invites', async (req, res) => {
     if (!isKnownSupplierJid(jid) && !isKnownSupplierJid(resolved)) continue;
     if (anchor?.key?.id && !String(anchor.key.id).startsWith('ARCHIVE_')) {
       addCandidate(anchor.key, anchor.messageTimestamp);
-    }
-  }
-
-  const responsesFile = path.join(__dirname, 'respostas_fornecedores.json');
-  const replies = fs.existsSync(responsesFile) ? readJsonSafe(responsesFile) : {};
-  if (replies && typeof replies === 'object') {
-    for (const [keyPhone, info] of Object.entries(replies)) {
-      if (!info || typeof info !== 'object') continue;
-      const phone = String(info.telefone || keyPhone || '').replace(/\D/g, '');
-      const msgId = String(info.message_id || '').trim();
-      const ts = Number(info.timestamp || 0);
-      if (!phone || !msgId || !ts) continue;
-      const lidJid = resolveLidFileForPhone(phone);
-      if (lidJid) addCandidate({ remoteJid: lidJid, id: msgId, fromMe: false }, ts);
-      addCandidate({ remoteJid: `${phone}@s.whatsapp.net`, id: msgId, fromMe: false }, ts);
     }
   }
 

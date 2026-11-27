@@ -48,13 +48,11 @@ test('duplicate reconnect events schedule one connection attempt',()=>{
   context.scheduleReconnect(100);context.scheduleReconnect(100);
   assert.equal(scheduled,1);callback();assert.equal(starts,1);assert.equal(context.reconnectTimer,null);
 });
-const replySource=source.slice(source.indexOf('function isSupplierReplyContent'),source.indexOf('async function inspectIncomingMessage'));
-test('short responses and audio count as replies; protocol updates do not',()=>{
-  const context={extractPlainTextFromMessage:m=>m.conversation||''};vm.createContext(context);vm.runInContext(replySource,context);
-  assert.equal(context.isSupplierReplyContent({conversation:'ok'}),true);
-  assert.equal(context.isSupplierReplyContent({audioMessage:{}}),true);
-  assert.equal(context.isSupplierReplyContent({protocolMessage:{type:0}}),false);
-  assert.equal(context.isSupplierReplyContent({ephemeralMessage:{message:{conversation:'oi'}}}),true);
+test('outbound supplier messaging routes and acknowledgments are absent',()=>{
+  assert.equal(source.includes("app.post('/api/send'"),false);
+  assert.equal(source.includes('waSocket.sendMessage('),false);
+  assert.equal(source.includes('/api/internal/message-ack'),false);
+  assert.match(source,/app\.post\('\/api\/join-community'/);
 });
 const inviteSource=source.slice(source.indexOf('function parseManualInvite'),source.indexOf('async function processInviteCode'));
 test('manual invites accept valid codes and links, rejecting unrelated URLs',()=>{
@@ -81,7 +79,7 @@ test('invites are extracted from captions and native messages, excluding quoted 
   assert.equal(context.extractInviteCodesFromMessage({extendedTextMessage:{text:'ok',contextInfo:{quotedMessage:{conversation:'https://chat.whatsapp.com/'+code}}}}).length,0);
   assert.equal(context.extractInviteCodesFromMessage({conversation:'https://evilchat.whatsapp.com/'+code}).length,0);
 });
-const supplierInviteSource=source.slice(source.indexOf('function enqueueSupplierInvites'),source.indexOf('function isSupplierReplyContent'));
+const supplierInviteSource=source.slice(source.indexOf('function enqueueSupplierInvites'),source.indexOf('async function inspectIncomingMessage'));
 test('automatic entry is triggered only for known suppliers, never own messages',()=>{
   const queued=[];const context={loadKnownSuppliers(){},resolveLidJid:jid=>jid,isKnownSupplierJid:jid=>jid==='supplier@s.whatsapp.net',extractInviteCodesFromMessage:()=>['ABC'],joinedCommunitiesMap:new Map(),inviteQueue:{enqueue:item=>{queued.push(item);return true}},contactNameCache:new Map(),addLog(){}};
   vm.createContext(context);vm.runInContext(supplierInviteSource,context);

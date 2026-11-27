@@ -106,6 +106,48 @@ class CatalogTests(unittest.TestCase):
         with open(os.path.join(painel.CATALOG_ARCHIVE_DIR, painel.time.strftime("%Y%m%d") + '.json')) as stream:
             self.assertEqual(len(json.load(stream)), 1)
 
+    def test_save_during_products_cache_rebuild_cannot_restore_stale_products(self):
+        old_product = self.product()
+        new_product = dict(old_product, preco=5200, hora="10:05:00")
+        painel.save_produtos([old_product])
+        started = threading.Event()
+        release = threading.Event()
+        loaded = []
+
+        def delayed_load():
+            if not loaded:
+                loaded.append(True)
+                started.set()
+                if not release.wait(2):
+                    raise TimeoutError("Cache rebuild was not released")
+                return [old_product]
+            return [new_product]
+
+        result, errors = [], []
+
+        def rebuild():
+            try:
+                result.append(painel._get_products_http_payload(None))
+            except Exception as exc:
+                errors.append(exc)
+
+        with patch.object(painel, "load_produtos", side_effect=delayed_load), \
+             patch.object(painel, "bridge_status_lite", return_value={"status": "CONNECTED"}):
+            builder = threading.Thread(target=rebuild)
+            builder.start()
+            try:
+                self.assertTrue(started.wait(2))
+                painel.save_produtos([new_product])
+            finally:
+                release.set()
+                builder.join(2)
+
+        self.assertFalse(builder.is_alive())
+        self.assertEqual(errors, [])
+        self.assertEqual(len(result), 1)
+        payload = json.loads(result[0][1])
+        self.assertEqual(payload["products"][0]["preco"], 5200)
+
     def test_failed_replace_preserves_previous_data(self):
         painel.save_produtos([self.product()])
         with patch('painel.os.replace', side_effect=OSError('disk unavailable')):

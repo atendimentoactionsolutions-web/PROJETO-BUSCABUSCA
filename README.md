@@ -17,7 +17,7 @@ npm start
 
 A primeira conexão exige leitura do QR em WhatsApp → Aparelhos conectados. Credenciais ficam em `auth_session/`; reiniciar o serviço preserva o vínculo. Credenciais revogadas são arquivadas para recuperação em vez de apagadas. Uma revogação no celular exige novo QR. Não execute dois motores com a mesma sessão.
 
-A captura não inicia disparos. Mensagens só são enviadas pelos comandos explícitos do painel. O catálogo mantém a regra existente: somente ofertas do dia após 06h, no fuso `America/Sao_Paulo` (sobrescrevível com `TZ`). Não são publicadas ofertas antigas ou dados de demonstração.
+A captura é somente de entrada: o painel não oferece envio de mensagens para fornecedores nem campanhas. A Central `/admin` gerencia acessos de clientes e acompanha WhatsApp, fila de captura, grupos, cobertura e robôs. O catálogo mantém a regra existente: somente ofertas do dia após 06h, no fuso `America/Sao_Paulo` (sobrescrevível com `TZ`). Não são publicadas ofertas antigas ou dados de demonstração.
 
 ## Validação
 
@@ -45,15 +45,11 @@ O arquivamento de grupos não bloqueia a entrega das listas ao painel. Repetiç�
 
 `npm ci` executa `scripts/patch-baileys.cjs` para corrigir a leitura de participantes de grupos no Baileys **7.0.0-rc14**, versão fixada pelo projeto. A correção trata identificadores simples e objetos JSON, conforme o problema relatado em https://github.com/WhiskeySockets/Baileys/issues/2714. O script recusa versões ou formatos inesperados. Caso a instalação use `--ignore-scripts`, execute `node scripts/patch-baileys.cjs` antes de iniciar o motor. Uma atualização futura do Baileys exige revisar essa compatibilidade.
 
-## Histórico e continuidade dos contatos
+## Dados históricos de mensagens
 
-O histórico de envios é permanente. O endpoint de zerar histórico está bloqueado. Envios são mesclados com o estado anterior, com cópia `.bak` e registro de alterações em `historico_eventos.jsonl`. Um histórico ilegível bloqueia envios.
+Os endpoints, telas e lógica de envio/campanha foram removidos. Arquivos antigos como `config.json`, `historico_envios.json`, `historico_eventos.jsonl` e `respostas_fornecedores.json` não são apagados nem alterados por essa mudança; são dados históricos inativos. A captura de ofertas recebidas, o reconhecimento de fornecedores e a gestão de convites/grupos continuam separados desse histórico. Preserve esses arquivos em deploys se existirem.
 
-A fila inicial exclui contatos enviados, respondidos ou com envio sem confirmação. Telefones com e sem nono dígito são conciliados. A reserva `ENVIANDO` é gravada antes do envio; falhas de confirmação ficam `INCERTO`, sem repetição automática. Cada contato com erro é tentado uma vez por rodada.
-
-Respostas diretas, inclusive mensagens curtas, são registradas separadamente em `respostas_fornecedores.json`. Mensagens do histórico são processadas quando disponibilizadas pelo WhatsApp. O filtro “Sem resposta registrada” não é prova de ausência de resposta: aguarde sincronização e revise as conversas antes de uma campanha futura. A segunda campanha não inicia automaticamente.
-
-Ofertas retiradas na virada do dia ou na limpeza do catálogo são arquivadas em `catalogo_arquivo/`. Limpar o catálogo não afeta o histórico de envios nem as respostas. Todos esses arquivos operacionais devem ser preservados nos deploys.
+Ofertas retiradas na virada do dia são arquivadas em `catalogo_arquivo/`; os robôs mantêm os intervalos de 3, 5 e 10 minutos para não aumentar a carga da VPS.
 
 ## Convites de fornecedores
 
@@ -65,17 +61,9 @@ Convites enviados por fornecedores cadastrados são capturados em mensagens dire
 
 A fila `fila_convites.json` é persistida antes da tentativa e processa um convite por vez quando a operação automática estiver explicitamente habilitada. Elimina duplicatas e tenta novamente erros transitórios até cinco vezes. Convites expirados, restrições, grupos fora de escopo e pedidos de aprovação ficam identificados para conferência, sem tentativas contínuas. Saídas automáticas limitam-se aos grupos explicitamente bloqueados pelo usuário. Entradas confirmadas passam ao monitoramento de listas; o arquivamento só acontece com uma mensagem real disponível. Preservar a fila e os bloqueios em todo deploy.
 
-## Restrição da conta e conferência de envios
+## Restrição da conta e segurança da captura
 
-Com `BUSCABUSCA_PAUSED=1`, o painel continua acessível, o motor WhatsApp não inicia e os endpoints de envio, entrada em comunidades e sincronização retornam 423. A pausa administrativa não pode ser retirada pela interface. O deploy deve preservar esse ambiente enquanto a conta estiver restrita.
-
-Há até cinco modelos editáveis, escolhidos por fornecedor. São opções de redação, sem promessa de evitar bloqueios. Intervalos antigos de 8–15 segundos passam a 300–600 segundos; o intervalo mínimo também se aplica a comandos individuais. Limite padrão de cinco tentativas por rodada. Um contato precisa estar marcado como autorizado/esperado; essa marcação exige uma base real e não concede autorização por si só. Nenhum limite garante conformidade ou ausência de restrição.
-
-Cada novo envio guarda texto, destino, ID e horário. Uma mensagem criada sem confirmação não aparece como enviada; a rodada pausa para conferência. Confirmações do WhatsApp avançam de pendente para servidor, entregue e lida, quando disponibilizadas. A confirmação do servidor ou entrega ao destinatário não comprova sincronização com o celular do remetente. Sem ID válido, o envio fica incerto e não é repetido automaticamente.
-
-Conversas diretas de fornecedores deixam de ser arquivadas automaticamente pelo sistema. Conversas que já estavam arquivadas não são movidas nem apagadas. Conferir também a pasta de conversas arquivadas no celular. Registros antigos continuam preservados, sem inventar IDs ou recibos ausentes.
-
-Para operação comercial futura, avaliar a WhatsApp Business Platform oficial e as permissões de contato aplicáveis antes de retomar automações. Não reiniciar disparos enquanto a restrição estiver ativa.
+Com `BUSCABUSCA_PAUSED=1`, o painel continua acessível, o motor WhatsApp não inicia e a entrada em comunidades é bloqueada. A pausa administrativa não pode ser retirada pela interface. O deploy deve preservar esse ambiente enquanto a conta estiver restrita.
 
 ## Endereço HTTPS
 
@@ -90,12 +78,12 @@ O hostname exclusivo resolve para a VPS pelo DNS já existente da Hostinger, sem
 npm run preview
 ```
 
-Abra **http://localhost:3054/**. No VS Code, use `Simple Browser: Show` e cole o endereço, ou execute a tarefa `BuscaBusca: prévia local do catálogo`.
+Abra **http://localhost:3054/**. No VS Code, use `Simple Browser: Show` e cole o endereço, ou execute a tarefa `BuscaBusca: prévia local do catálogo`. A rota `/admin` mostra uma prévia com contas, grupos e estados fictícios, identificada como local e sem ações de gravação.
 
-A prévia começa e permanece sem produtos, com `/api/products` retornando uma lista vazia. Não há arquivo de exemplos ou produtos de demonstração. Não importa o painel, não conecta o WhatsApp, não escreve no banco e não chama a VPS. O catálogo real continua consumindo sua própria API de produtos.
+A prévia do catálogo lê, se existir, apenas o `produtos_dia.json` local e não chama a VPS. Não importa o painel, não conecta o WhatsApp nem escreve no banco. A prévia administrativa não usa contas, mensagens, grupos ou dados reais.
 
 O catálogo agrupa ofertas por modelo normalizado, capacidade e condição. Grafias conhecidas como PROMAX/PRO MAX e cores equivalentes são reunidas; eSIM e LL/A ficam identificados no nome original da oferta na consulta de fornecedores. Ativados e CPO permanecem separados. Termos desconhecidos são preservados para evitar unir especificações distintas.
 
-A grade usa seis colunas em telas amplas, reduzindo até uma coluna no celular. Os modelos seguem geração e versão, com capacidades decrescentes; as cores mostram o menor custo e são ordenadas por preço. O olho do cabeçalho abre todas as ofertas, e o olho de cada cor filtra essa seleção. A consulta preserva as especificações originais e ordena os fornecedores por preço. A comparação não representa uma pesquisa completa do mercado. Não há calculadora, exportação nem funções de cartão.
+A grade usa seis colunas em telas amplas, reduzindo até uma coluna no celular. Os modelos seguem geração e versão, com capacidades decrescentes; as cores mostram o menor custo e são ordenadas por preço. A navegação é feita pelas categorias, com carregamento progressivo dos produtos; não há campo de busca nem seletor de quantidade por página. O olho do cabeçalho abre todas as ofertas, e o olho de cada cor filtra essa seleção. A consulta preserva as especificações originais e ordena os fornecedores por preço. A comparação não representa uma pesquisa completa do mercado. Não há calculadora, exportação nem funções de cartão.
 
-Arquivos de interface: `web/index.html`, `web/catalog.css`, `web/catalog.js` e `web/catalog-ui.js`. O servidor Python serve uma lista explícita desses recursos; o deploy copia apenas HTML, CSS e JS, sem arquivos de demonstração. Esta alteração está disponível para revisão local; a VPS permanece na versão publicada anteriormente e suas automações continuam pausadas.
+Arquivos de interface: `web/index.html`, `web/catalog.css`, `web/catalog.js`, `web/catalog-ui.js` e `web/admin.*`. O servidor Python serve uma lista explícita desses recursos. `scripts/deploy-vps.sh` publica o código e a interface após testes, sem copiar `fornecedores.json`, configurações, históricos, filas, sessões ou o banco de contas; esses dados devem permanecer no servidor.

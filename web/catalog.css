@@ -46,22 +46,9 @@ svg {
 .topbar-btn:hover { background: #f3f4f6; }
 .topbar-logout { color: #b91c1c; border-color: #fecaca; }
 .topbar-logout:hover { background: #fef2f2; }
-.section-controls { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-.search-input {
-  width: 240px;
-  max-width: 100%;
-  padding: 7px 12px;
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  background: #fff;
-  color: #111827;
-  font-size: 13px;
-}
-.search-input::placeholder { color: #9ca3af; }
 @media (max-width: 640px) {
   .topbar { padding: 0 14px; }
   .user-pill { display: none; }
-  .search-input { width: 100%; }
 }
 
 .catalog {
@@ -120,37 +107,10 @@ svg {
 .section-head {
   padding: 14px 0 10px;
 }
-.section-title-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 6px;
-}
 .section-title {
   margin: 0;
   font-size: 15px;
   font-weight: 650;
-  color: #111827;
-}
-.section-meta-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  font-size: 11.5px;
-  color: var(--muted);
-}
-.per-page-label {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-.per-page-label select {
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  background: #fff;
-  padding: 3px 8px;
-  font-size: 11.5px;
   color: #111827;
 }
 

@@ -14,8 +14,9 @@ const CATEGORY_ICONS = {
   cpo: ['M12 2l3 6 6 .9-4.5 4.4 1 6.2L12 16.5 6.5 19.5l1-6.2L3 8.9 9 8l3-6Z'],
   seminovos: ['M4 4h16v16H4z','M4 9h16','M9 4v16','M12 15l2 2 4-4']
 };
-let catalog = [], selectedCategory = 'iphone', perPage = 60, limit = 60, refreshing = false, demo = false, serverPriced = false;
-let lastPayload = null, lastEtag = null, lastFetchedAt = 0, searchQuery = '', selection = null;
+const PAGE_SIZE = 60;
+let catalog = [], selectedCategory = 'iphone', limit = PAGE_SIZE, refreshing = false, demo = false, serverPriced = false;
+let lastPayload = null, lastEtag = null, lastFetchedAt = 0, selection = null;
 const AUTO_REFRESH_MS = 120000; // 2 minutos (leve para o servidor, sempre atualizado)
 function element(tag, className, content) {
   const node = document.createElement(tag);
@@ -37,7 +38,7 @@ function renderCategories() {
     const button = element('button','category-tab'+(id === selectedCategory ? ' active' : ''));
     button.type='button'; button.setAttribute('aria-pressed',String(id === selectedCategory));
     button.append(icon(CATEGORY_ICONS[id] || eyePaths), element('span','',label), element('span','tab-count',String(counts.get(id) || 0)));
-    button.addEventListener('click',() => { selectedCategory=id; limit=perPage; renderCategories(); renderCatalog(); });
+    button.addEventListener('click',() => { selectedCategory=id; limit=PAGE_SIZE; renderCategories(); renderCatalog(); });
     return button;
   }));
 }
@@ -91,28 +92,13 @@ function card(group) {
   }
   return article;
 }
-function normSearch(v) {
-  return String(v || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
-}
-function matchesSearch(group, tokens) {
-  if (!tokens.length) return true;
-  const hay = normSearch([group.model, group.capacity, ...group.variants.map(v => v.color)].join(' '));
-  return tokens.every(tok => hay.includes(tok));
-}
 function renderCatalog(error = false) {
   const catInfo = CATEGORIES.find(([id]) => id === selectedCategory);
   if ($('sectionTitle')) $('sectionTitle').textContent = catInfo ? catInfo[1] : 'Produtos';
-  const tokens = normSearch(searchQuery).split(/\s+/).filter(Boolean);
   const visible = sortCatalogForDisplay(
-    catalog.filter(group => group.category === selectedCategory && matchesSearch(group, tokens))
+    catalog.filter(group => group.category === selectedCategory)
   );
   const shown = visible.slice(0, limit);
-  const totalVariants = visible.reduce((acc, g) => acc + g.variants.length, 0);
-  if ($('sectionSummary')) {
-    $('sectionSummary').textContent = visible.length
-      ? `Mostrando modelos 1-${shown.length} de ${visible.length} modelos · ${totalVariants} variações`
-      : (tokens.length ? `Nenhum resultado para “${searchQuery.trim()}”` : 'Nenhum modelo nesta categoria');
-  }
   $('loadMore').hidden=visible.length<=limit;
   if (!visible.length) {
     const empty=element('section','empty-state');
@@ -227,13 +213,6 @@ async function refresh(force = false) {
   }
 }
 if ($('btnRefresh')) $('btnRefresh').addEventListener('click', () => refresh(true));
-if ($('searchInput')) {
-  $('searchInput').addEventListener('input', ev => {
-    searchQuery = ev.target.value || '';
-    limit = perPage;
-    renderCatalog();
-  });
-}
 document.addEventListener('visibilitychange', () => {
   if (!document.hidden && Date.now() - lastFetchedAt > 60000) refresh(false);
 });
@@ -242,12 +221,5 @@ for(const dialog of document.querySelectorAll('dialog'))dialog.addEventListener(
   const rect=dialog.getBoundingClientRect();
   if(event.target===dialog&&(event.clientX<rect.left||event.clientX>rect.right||event.clientY<rect.top||event.clientY>rect.bottom))dialog.close();
 });
-if ($('perPageSelect')) {
-  $('perPageSelect').addEventListener('change', event => {
-    perPage = Number(event.target.value) || 30;
-    limit = perPage;
-    renderCatalog();
-  });
-}
-$('loadMore').addEventListener('click',()=>{limit+=perPage;renderCatalog();});
+$('loadMore').addEventListener('click',()=>{limit+=PAGE_SIZE;renderCatalog();});
 renderCategories();refresh(true);setInterval(() => refresh(false), AUTO_REFRESH_MS);

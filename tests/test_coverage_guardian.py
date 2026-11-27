@@ -131,6 +131,25 @@ class CoverageGuardianTests(unittest.TestCase):
             self.assertTrue(report["needsRecovery"])
             self.assertGreaterEqual(len(report["issues"]), 2)
 
+    def test_connected_whatsapp_with_unavailable_groups_endpoint_is_not_reported_ok(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            def fake_get(path):
+                if "status" in path:
+                    return {"status": "CONNECTED", "capture": {"pending": 0, "failed": 0}}
+                return {"ok": False, "error": "temporarily unavailable"}
+
+            report = coverage_guardian.run_coverage_audit(
+                base_dir=tmp,
+                bridge_get_fn=fake_get,
+                produtos_today=[],
+                fornecedores=[],
+                allow_recovery=False,
+            )
+
+        self.assertEqual(report["status"], "ALERTA")
+        self.assertTrue(report["needsRecovery"])
+        self.assertTrue(any("conferir os grupos participantes" in issue for issue in report["issues"]))
+
 
 if __name__ == "__main__":
     unittest.main()

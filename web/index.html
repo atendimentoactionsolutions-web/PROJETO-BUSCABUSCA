@@ -23,25 +23,8 @@
   </header>
   <main class="catalog" aria-label="Catálogo de fornecedores">
     <nav class="category-bar" id="categories" aria-label="Categorias de produtos"></nav>
-    <section class="section-head" aria-label="Resumo da categoria">
-      <div class="section-title-row">
-        <h1 class="section-title" id="sectionTitle">iPhones Novos</h1>
-      </div>
-      <div class="section-meta-row">
-        <span class="section-summary" id="sectionSummary">Carregando modelos…</span>
-        <div class="section-controls">
-          <input type="search" id="searchInput" class="search-input" placeholder="Buscar modelo, GB ou cor…" aria-label="Buscar modelo, capacidade ou cor" autocomplete="off">
-          <label class="per-page-label">
-            <span>Por página</span>
-            <select id="perPageSelect" aria-label="Modelos por página">
-              <option value="30">30</option>
-              <option value="60" selected>60</option>
-              <option value="120">120</option>
-              <option value="9999">Todos</option>
-            </select>
-          </label>
-        </div>
-      </div>
+    <section class="section-head" aria-label="Categoria selecionada">
+      <h1 class="section-title" id="sectionTitle">iPhones Novos</h1>
     </section>
     <div class="catalog-sections" id="catalogGrid" aria-live="polite" aria-busy="true"></div>
     <button class="more-button" id="loadMore" hidden>Mostrar mais produtos</button>

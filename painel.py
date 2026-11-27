@@ -36,10 +36,6 @@ from price_guardian import (
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 FORNECEDORES_FILE = os.path.join(BASE_DIR, "fornecedores.json")
-RESPOSTAS_FILE = os.path.join(BASE_DIR, "respostas_fornecedores.json")
-HISTORY_EVENTS_FILE = os.path.join(BASE_DIR, "historico_eventos.jsonl")
-HISTORICO_FILE = os.path.join(BASE_DIR, "historico_envios.json")
-CONFIG_FILE = os.path.join(BASE_DIR, "config.json")
 CATALOG_ARCHIVE_DIR = os.path.join(BASE_DIR, "catalogo_arquivo")
 PRODUTOS_FILE = os.path.join(BASE_DIR, "produtos_dia.json")
 
@@ -51,69 +47,14 @@ DEFAULT_NODE_WIN = r"C:\Users\Mundo Apple\.gemini\antigravity\scratch\node-env\n
 NODE_EXE = DEFAULT_NODE_WIN if os.path.exists(DEFAULT_NODE_WIN) else (shutil.which("node") or "node")
 BRIDGE_SCRIPT = os.path.join(BASE_DIR, "whatsapp_bridge.js")
 
-DEFAULT_MESSAGES = [
-    "Olá, tudo bem? Me manda o link da sua comunidade ou grupo para eu acompanhar as listas, por favor.",
-    "Boa tarde, tudo certo? Consegue me mandar o link da comunidade de vocês para eu entrar e acompanhar as atualizações?",
-    "Opa, beleza? Consegue me mandar o link da sua comunidade ou grupo para eu entrar?",
-    "Oi, tudo bem? Me manda o link da comunidade de vocês para eu acompanhar as tabelas do dia, por favor.",
-    "Olá, tudo bem por aí? Quando puder, me manda o link do seu grupo ou comunidade para eu entrar. Obrigado!",
-]
-DEFAULT_CONFIG = {
-    "mensagem": DEFAULT_MESSAGES[0],
-    "mensagens": list(DEFAULT_MESSAGES),
-    "delay_min": 45,
-    "delay_max": 70,
-    "limite_rodada": 20,
-    "auto_start_on_connect": False,
-}
-BLOCKED_DELIVERY_STATES = {"ENVIADO", "ENVIANDO", "INCERTO", "AGUARDANDO_CONFIRMACAO"}
-
-
 def automation_paused():
     return os.environ.get("BUSCABUSCA_PAUSED", "0") == "1"
-
-
-def normalized_messaging_config(cfg):
-    value = dict(DEFAULT_CONFIG)
-    value.update(cfg)
-    messages = value.get("mensagens")
-    if not isinstance(messages, list) or not 1 <= len(messages) <= 5 or any(not isinstance(item, str) or not item.strip() or len(item) > 4000 for item in messages):
-        raise ValueError("Defina de um a cinco modelos de mensagem válidos.")
-    value["mensagens"] = [item.strip() for item in messages]
-    value["mensagem"] = value["mensagens"][0]
-    raw_min = int(value.get("delay_min", 45))
-    raw_max = int(value.get("delay_max", 70))
-    if raw_min < 30:
-        raw_min = 300
-    if raw_max < 30:
-        raw_max = 600
-    value["delay_min"] = max(45, min(86400, raw_min))
-    value["delay_max"] = max(value["delay_min"], min(86400, raw_max))
-    value["limite_rodada"] = max(1, min(20, int(value.get("limite_rodada", 20))))
-    value["auto_start_on_connect"] = False
-    return value
-
-
-def supplier_message(cfg, supplier, round_index=0):
-    messages = cfg["mensagens"]
-    raw_index = supplier.get("modelo_mensagem")
-    index = int(raw_index) if raw_index is not None else (int(round_index) % len(messages))
-    return render_message(messages[index if 0 <= index < len(messages) else 0], supplier)
 
 
 state_lock = threading.Lock()
 products_lock = threading.RLock()
 data_lock = threading.RLock()
-sending_lock = threading.Lock()
-
-campaign_state = {
-    "running": False,
-    "stop_requested": False,
-    "current_supplier": None,
-    "sent_session": 0,
-    "errors_session": 0,
-    "logs": [],
-}
+_panel_logs = []
 
 
 def add_panel_log(msg):
@@ -121,25 +62,8 @@ def add_panel_log(msg):
     line = f"[{ts}] {msg}"
     print(line, flush=True)
     with state_lock:
-        campaign_state["logs"].insert(0, line)
-        if len(campaign_state["logs"]) > 250:
-            campaign_state["logs"].pop()
-
-
-def load_config():
-    if os.path.exists(CONFIG_FILE):
-        try:
-            with open(CONFIG_FILE, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                cfg = dict(DEFAULT_CONFIG)
-                cfg.update(data)
-                if "mensagens" not in data:
-                    cfg["mensagens"] = [str(data.get("mensagem") or DEFAULT_MESSAGES[0])] + DEFAULT_MESSAGES[1:]
-                return normalized_messaging_config(cfg)
-        except Exception:
-            pass
-    save_config(DEFAULT_CONFIG)
-    return dict(DEFAULT_CONFIG)
+        _panel_logs.insert(0, line)
+        del _panel_logs[250:]
 
 
 def atomic_json_write(file_path, value):
@@ -156,170 +80,11 @@ def atomic_json_write(file_path, value):
                 os.unlink(temporary)
 
 
-def save_config(cfg):
-    atomic_json_write(CONFIG_FILE, normalized_messaging_config(cfg))
-
-
 def load_fornecedores():
     if not os.path.exists(FORNECEDORES_FILE):
         return []
     with open(FORNECEDORES_FILE, "r", encoding="utf-8-sig") as f:
         return json.load(f)
-
-
-def save_fornecedores(lista):
-    atomic_json_write(FORNECEDORES_FILE, lista)
-
-
-def load_historico():
-    if not os.path.exists(HISTORICO_FILE):
-        if os.path.exists(HISTORY_EVENTS_FILE) or os.path.exists(HISTORICO_FILE + ".bak"):
-            raise ValueError("Histórico ausente: restaurar os registros antes de enviar.")
-        return {}
-    with open(HISTORICO_FILE, "r", encoding="utf-8-sig") as stream:
-        value = json.load(stream)
-    if not isinstance(value, dict):
-        raise ValueError("Histórico inválido: envios bloqueados para proteger os registros.")
-    return value
-
-
-def save_historico(hist):
-    # Merge under one lock. A stale request must never erase a previous delivery.
-    with data_lock:
-        previous = load_historico()
-        merged = dict(previous)
-        for phone, incoming in hist.items():
-            old = previous.get(phone, {})
-            entry = {**old, **incoming}
-            if old.get("status") == "ENVIADO":
-                entry["status"] = "ENVIADO"
-                entry["horario"] = max(old.get("horario", ""), incoming.get("horario", ""))
-            if int(old.get("ack", 0)) > int(incoming.get("ack", 0)):
-                for field in ("ack", "confirmacao", "message_id"):
-                    if field in old:
-                        entry[field] = old[field]
-            merged[phone] = entry
-        if previous:
-            atomic_json_write(HISTORICO_FILE + ".bak", previous)
-        atomic_json_write(HISTORICO_FILE, merged)
-        changes = {phone: item for phone, item in merged.items() if item != previous.get(phone)}
-        if changes:
-            with open(HISTORY_EVENTS_FILE, "a", encoding="utf-8") as stream:
-                stream.write(json.dumps({"timestamp": time.time(), "changes": changes}, ensure_ascii=False) + "\n")
-                stream.flush()
-                os.fsync(stream.fileno())
-
-
-def canonical_phone(raw):
-    digits = re.sub(r"\D", "", str(raw or "").split("@")[0].split(":")[0])
-    if len(digits) in (10, 11):
-        digits = "55" + digits
-    if len(digits) == 13 and digits.startswith("55") and digits[4] == "9":
-        digits = digits[:4] + digits[5:]
-    return digits
-
-
-def history_for_phone(history, phone):
-    identity = canonical_phone(phone)
-    matches = [entry for key, entry in history.items()
-               if identity and (canonical_phone(key) == identity or canonical_phone(entry.get("jid")) == identity)]
-    return next((entry for entry in matches if entry.get("status") == "ENVIADO"), matches[0] if matches else {})
-
-
-def load_respostas():
-    if not os.path.exists(RESPOSTAS_FILE):
-        return {}
-    with open(RESPOSTAS_FILE, encoding="utf-8-sig") as stream:
-        value = json.load(stream)
-    if not isinstance(value, dict):
-        raise ValueError("Registro de respostas inválido")
-    return value
-
-
-def record_supplier_reply(phone, timestamp, message_id):
-    identity = canonical_phone(phone)
-    supplier = next((item for item in load_fornecedores() if canonical_phone(item.get("telefone")) == identity), None)
-    if not identity or not supplier or not isinstance(timestamp, (int, float)) or timestamp <= 0 or timestamp > time.time() + 300:
-        return False
-    history = history_for_phone(load_historico(), supplier.get("telefone"))
-    if history.get("horario"):
-        sent_at = time.mktime(time.strptime(history["horario"], "%Y-%m-%d %H:%M:%S"))
-        if timestamp < sent_at:
-            return False
-    with data_lock:
-        replies = load_respostas()
-        old = replies.get(identity, {})
-        if timestamp <= old.get("timestamp", 0):
-            return False
-        replies[identity] = {"telefone": str(supplier.get("telefone")), "timestamp": timestamp,
-                             "horario": datetime.datetime.fromtimestamp(timestamp).isoformat(timespec="seconds"),
-                             "message_id": str(message_id or ""), "nome": supplier.get("nome", "")}
-        atomic_json_write(RESPOSTAS_FILE, replies)
-    return True
-
-
-def pending_supplier(supplier, history, replies):
-    phone = supplier.get("telefone", "")
-    return bool(phone) and supplier.get("contato_autorizado") is True and not supplier.get("ignorar") and history_for_phone(history, phone).get("status") not in BLOCKED_DELIVERY_STATES and canonical_phone(phone) not in replies
-
-
-def deliver_supplier(supplier, message):
-    if automation_paused():
-        return {"ok": False, "error": "Automações pausadas devido à restrição da conta."}
-    if supplier.get("contato_autorizado") is not True:
-        return {"ok": False, "error": "Registre a autorização ou expectativa de contato do fornecedor antes de enviar."}
-    phone = str(supplier.get("telefone", "")).strip()
-    with sending_lock:
-        history = load_historico()
-        previous = history_for_phone(history, phone)
-        if previous.get("status") in BLOCKED_DELIVERY_STATES or canonical_phone(phone) in load_respostas():
-            return {"ok": False, "skipped": True, "error": "Contato já enviado, respondido ou aguardando conferência; não será repetido."}
-        cfg = load_config()
-        latest_attempt = max((float(item.get("tentativa_timestamp", 0)) for item in history.values()), default=0)
-        if time.time() - latest_attempt < cfg["delay_min"]:
-            return {"ok": False, "error": "Aguarde o intervalo configurado antes do próximo envio."}
-        entry = {**previous, "nome": supplier.get("nome", "Fornecedor"), "telefone": phone,
-                 "status": "ENVIANDO", "texto_enviado": message, "tentativa_timestamp": time.time(), "horario": time.strftime("%Y-%m-%d %H:%M:%S")}
-        save_historico({phone: entry})
-        try:
-            response = bridge_post("/api/send", {"phone": phone, "name": entry["nome"], "message": message})
-        except Exception as exc:
-            save_historico({phone: {**entry, "status": "INCERTO", "erro": str(exc)}})
-            return {"ok": False, "error": "Envio sem confirmação. Conferir a conversa antes de repetir."}
-        if response.get("ok") and response.get("messageId") and response.get("ack") == 0:
-            save_historico({phone: {**entry, "status": "INCERTO", "message_id": response["messageId"], "ack": 0, "confirmacao": "FALHA"}})
-            return {"ok": False, "error": "O WhatsApp informou falha. Confira a conversa antes de tentar novamente."}
-        if response.get("ok") and response.get("messageId"):
-            confirmed = int(response.get("ack", 0)) >= 2
-            save_historico({phone: {**entry, "jid": response.get("jid"), "message_id": response["messageId"],
-                "ack": response.get("ack", 0), "status": "ENVIADO" if confirmed else "AGUARDANDO_CONFIRMACAO",
-                "confirmacao": "SERVIDOR" if confirmed else "PENDENTE"}})
-            response["confirmed"] = confirmed
-        elif response.get("ok"):
-            save_historico({phone: {**entry, "status": "INCERTO", "erro": "O motor não retornou o ID da mensagem."}})
-            return {"ok": False, "error": "Envio sem ID: conferir a conversa, sem repetição automática."}
-        else:
-            save_historico({phone: {**entry, "status": "ERRO", "erro": response.get("error")}})
-        return response
-
-
-def record_message_ack(phone, message_id, status):
-    if not message_id or not isinstance(status, int) or status not in range(6):
-        return False
-    with data_lock:
-        history = load_historico()
-        entry = history_for_phone(history, phone)
-        if not entry or (entry.get("message_id") and entry["message_id"] != message_id):
-            return False
-        if int(entry.get("ack", 0)) > status:
-            return False
-        if not entry.get("message_id") and entry.get("status") != "ENVIANDO":
-            return False
-        target_phone = entry.get("telefone") or phone
-        confirmation = {0: "FALHA", 1: "PENDENTE", 2: "SERVIDOR", 3: "ENTREGUE", 4: "LIDA", 5: "REPRODUZIDA"}[status]
-        save_historico({target_phone: {**entry, "message_id": message_id, "ack": status,
-            "confirmacao": confirmation, "status": "INCERTO" if status == 0 else "ENVIADO" if status >= 2 else "AGUARDANDO_CONFIRMACAO"}})
-        return True
 
 
 def get_today_str():
@@ -396,63 +161,69 @@ def invalidate_products_cache():
 
 def _get_products_http_payload(user):
     """Retorna (etag, raw_bytes, gz_bytes) em cache de memória, separado por modo (SEM DFU vs COM DFU)."""
-    now = time.monotonic()
-    with _products_cache_lock:
-        stale = (_products_cache["base_list"] is None) or (now - _products_cache["built_at"] > PRODUCTS_CACHE_TTL_SECONDS)
-    if stale:
-        produtos, _ = public_price_review(load_produtos())
-        wa = bridge_status_lite()
-        archived_cnt = int(wa.get("archivedMonitoredCount", 0))
-        comm_cnt = int(wa.get("communitiesCount", 0))
-        base_list = access_control.apply_user_pricing(produtos, False, compute_dfu_delta)
-        dfu_list = access_control.apply_user_pricing(produtos, True, compute_dfu_delta)
+    while True:
+        now = time.monotonic()
         with _products_cache_lock:
-            _products_cache["built_at"] = time.monotonic()
-            _products_cache["base_list"] = base_list
-            _products_cache["dfu_list"] = dfu_list
-            _products_cache["wa_status"] = wa.get("status", "CONNECTING")
-            _products_cache["comm_count"] = max(comm_cnt, archived_cnt)
-            _products_cache["http_bytes"].clear()
+            stale = (_products_cache["base_list"] is None) or (now - _products_cache["built_at"] > PRODUCTS_CACHE_TTL_SECONDS)
+            version = _products_cache["version"]
+        if stale:
+            produtos, _ = public_price_review(load_produtos())
+            wa = bridge_status_lite()
+            archived_cnt = int(wa.get("archivedMonitoredCount", 0))
+            comm_cnt = int(wa.get("communitiesCount", 0))
+            base_list = access_control.apply_user_pricing(produtos, False, compute_dfu_delta)
+            dfu_list = access_control.apply_user_pricing(produtos, True, compute_dfu_delta)
+            with _products_cache_lock:
+                if _products_cache["version"] != version:
+                    continue
+                _products_cache["built_at"] = time.monotonic()
+                _products_cache["base_list"] = base_list
+                _products_cache["dfu_list"] = dfu_list
+                _products_cache["wa_status"] = wa.get("status", "CONNECTING")
+                _products_cache["comm_count"] = max(comm_cnt, archived_cnt)
+                _products_cache["http_bytes"].clear()
 
-    if user:
-        dfu_flag = bool(user.get("dfu_enabled"))
-        cache_key = ("user", user.get("username"), user.get("role"), user.get("expires_at"), dfu_flag)
-    else:
-        dfu_flag = False
-        cache_key = ("local", "", "", None, False)
-
-    with _products_cache_lock:
-        cached = _products_cache["http_bytes"].get(cache_key)
-        if cached:
-            return cached
-        items = _products_cache["dfu_list"] if dfu_flag else _products_cache["base_list"]
         if user:
-            payload = {
-                "products": items,
-                "dfuApplied": True,
-                "user": {
-                    "username": user.get("username"),
-                    "name": user.get("name"),
-                    "role": user.get("role"),
-                    "expires_at": user.get("expires_at"),
-                },
-                "whatsappStatus": _products_cache["wa_status"],
-                "communitiesCount": _products_cache["comm_count"],
-            }
+            dfu_flag = bool(user.get("dfu_enabled"))
+            cache_key = ("user", user.get("username"), user.get("role"), user.get("expires_at"), dfu_flag)
         else:
-            payload = {
-                "products": items,
-                "whatsappStatus": _products_cache["wa_status"],
-                "communitiesCount": _products_cache["comm_count"],
-            }
-        raw_bytes = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
-        gz_bytes = gzip.compress(raw_bytes, compresslevel=5)
-        etag = f'"{hashlib.sha1(raw_bytes).hexdigest()[:16]}"'
-        entry = (etag, raw_bytes, gz_bytes)
-        if len(_products_cache["http_bytes"]) >= 64:
-            _products_cache["http_bytes"].clear()
-        _products_cache["http_bytes"][cache_key] = entry
-        return entry
+            dfu_flag = False
+            cache_key = ("local", "", "", None, False)
+
+        with _products_cache_lock:
+            if _products_cache["base_list"] is None:
+                continue
+            cached = _products_cache["http_bytes"].get(cache_key)
+            if cached:
+                return cached
+            items = _products_cache["dfu_list"] if dfu_flag else _products_cache["base_list"]
+            if user:
+                payload = {
+                    "products": items,
+                    "dfuApplied": True,
+                    "user": {
+                        "username": user.get("username"),
+                        "name": user.get("name"),
+                        "role": user.get("role"),
+                        "expires_at": user.get("expires_at"),
+                    },
+                    "whatsappStatus": _products_cache["wa_status"],
+                    "communitiesCount": _products_cache["comm_count"],
+                }
+            else:
+                payload = {
+                    "products": items,
+                    "whatsappStatus": _products_cache["wa_status"],
+                    "communitiesCount": _products_cache["comm_count"],
+                }
+            raw_bytes = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+            gz_bytes = gzip.compress(raw_bytes, compresslevel=5)
+            etag = f'"{hashlib.sha1(raw_bytes).hexdigest()[:16]}"'
+            entry = (etag, raw_bytes, gz_bytes)
+            if len(_products_cache["http_bytes"]) >= 64:
+                _products_cache["http_bytes"].clear()
+            _products_cache["http_bytes"][cache_key] = entry
+            return entry
 
 
 def identify_supplier(participant_jid, remote_jid, push_name, group_name, msg_text=""):
@@ -667,12 +438,45 @@ reset_thread = threading.Thread(target=midnight_reset_worker, daemon=True)
 
 
 _bridge_lite_cache = {"at": 0.0, "data": {}}
+_panel_groups_lock = threading.Lock()
+_panel_groups_refresh_lock = threading.Lock()
+_panel_groups_cache = {"at": 0.0, "groups": []}
 
 
 def bridge_get(path, timeout=8):
     req = urllib.request.Request(f"{BRIDGE_URL}{path}", headers={"Accept": "application/json"})
     with urllib.request.urlopen(req, timeout=timeout) as resp:
         return json.loads(resp.read().decode("utf-8"))
+
+
+def panel_groups_snapshot():
+    now = time.time()
+    with _panel_groups_lock:
+        cached_at = _panel_groups_cache["at"]
+        cached_groups = list(_panel_groups_cache["groups"])
+    if cached_at and now - cached_at < 60:
+        return cached_groups, time.strftime("%Y-%m-%dT%H:%M:%S%z", time.localtime(cached_at)), None
+    with _panel_groups_refresh_lock:
+        now = time.time()
+        with _panel_groups_lock:
+            cached_at = _panel_groups_cache["at"]
+            cached_groups = list(_panel_groups_cache["groups"])
+        if cached_at and now - cached_at < 60:
+            return cached_groups, time.strftime("%Y-%m-%dT%H:%M:%S%z", time.localtime(cached_at)), None
+        try:
+            response = bridge_get("/api/groups", timeout=25)
+            if not isinstance(response, dict) or not response.get("ok") or not isinstance(response.get("groups"), list):
+                raise ValueError((response.get("error") if isinstance(response, dict) else None) or "Resposta da lista de grupos inválida.")
+            groups = response["groups"]
+            with _panel_groups_lock:
+                _panel_groups_cache.update(at=now, groups=groups)
+            return groups, time.strftime("%Y-%m-%dT%H:%M:%S%z", time.localtime(now)), None
+        except (OSError, ValueError, TimeoutError) as exc:
+            checked_at = (
+                time.strftime("%Y-%m-%dT%H:%M:%S%z", time.localtime(cached_at))
+                if cached_at else None
+            )
+            return cached_groups, checked_at, f"{type(exc).__name__}: {exc}"
 
 
 def bridge_status_lite():
@@ -739,103 +543,6 @@ def bridge_supervisor():
             add_panel_log(f"Falha ao reiniciar motor WhatsApp: {exc}")
 
 
-def render_message(template, supplier):
-    msg = str(template or "").strip()
-    msg = msg.replace("{nome}", str(supplier.get("nome", "")).strip())
-    msg = msg.replace("{telefone}", str(supplier.get("telefone", "")).strip())
-    msg = msg.replace("{localizacao}", str(supplier.get("localizacao", "")).strip())
-    return msg
-
-
-def campaign_worker():
-    add_panel_log("[INICIO] Disparo AUTORIZADO pelo usuário! Iniciando fila de envios...")
-    attempted = set()
-    try:
-        while True:
-            with state_lock:
-                if campaign_state["stop_requested"]:
-                    campaign_state["running"] = False
-                    campaign_state["current_supplier"] = None
-                    break
-
-            try:
-                st = bridge_get("/api/status")
-                if st.get("status") != "CONNECTED":
-                    add_panel_log("[AVISO] WhatsApp desconectado! Disparo pausado automaticamente.")
-                    with state_lock:
-                        campaign_state["running"] = False
-                        campaign_state["current_supplier"] = None
-                    return
-            except Exception:
-                time.sleep(2)
-                continue
-
-            if automation_paused():
-                return
-            fornecedores = load_fornecedores()
-            historico = load_historico()
-            cfg = load_config()
-            replies = load_respostas()
-
-            proximo = None
-            for f in fornecedores:
-                tel = str(f.get("telefone", "")).strip()
-                if not tel:
-                    continue
-                if f.get("ignorar"):
-                    continue
-                if canonical_phone(tel) not in attempted and pending_supplier(f, historico, replies):
-                    proximo = f
-                    break
-
-            if not proximo:
-                add_panel_log("[FILA] Fim desta rodada. Envios com erro ou sem confirmação ficam separados para conferência.")
-                with state_lock:
-                    campaign_state["running"] = False
-                    campaign_state["current_supplier"] = None
-                return
-
-            nome = proximo.get("nome", "Fornecedor")
-            tel = str(proximo.get("telefone", "")).strip()
-            if len(attempted) >= cfg["limite_rodada"]:
-                add_panel_log("[PAUSA] Limite da rodada alcançado. Confira as confirmações antes de continuar.")
-                return
-            msg_final = supplier_message(cfg, proximo, len(attempted))
-
-            with state_lock:
-                campaign_state["current_supplier"] = f"{nome} ({tel})"
-
-            attempted.add(canonical_phone(tel))
-            resp = deliver_supplier(proximo, msg_final)
-            with state_lock:
-                campaign_state["sent_session" if resp.get("ok") else "errors_session"] += 1
-            add_panel_log(f"[{'OK' if resp.get('ok') else 'CONFERIR'}] {nome}: " + ("confirmado pelo servidor" if resp.get("confirmed") else "aguardando confirmação" if resp.get("ok") else str(resp.get("error", "Falha"))) + f' | "{msg_final[:80]}"')
-
-            if resp.get("ok") and not resp.get("confirmed"):
-                add_panel_log("[PAUSA] Sem confirmação do servidor. Confira a mensagem no celular antes de continuar.")
-                return
-            if not resp.get("ok"):
-                add_panel_log("[PAUSA] Falha no envio. Rodada interrompida para conferência.")
-                return
-            d_min = cfg["delay_min"]
-            d_max = max(d_min, int(cfg.get("delay_max", 70)))
-            wait_sec = round(random.uniform(d_min, d_max), 1)
-            add_panel_log(f"[INTERVALO] Aguardando {wait_sec}s antes da próxima mensagem...")
-
-            steps = int(wait_sec * 2)
-            for _ in range(steps):
-                with state_lock:
-                    if campaign_state["stop_requested"]:
-                        break
-                time.sleep(0.5)
-
-        add_panel_log("[PAUSA] Disparo pausado pelo usuário.")
-    finally:
-        with state_lock:
-            campaign_state["running"] = False
-            campaign_state["current_supplier"] = None
-
-
 # ==============================================================================
 # PÁGINA 1: BUSCADOR DOS MELHORES PREÇOS DO DIA (/) + LOGIN (/login)
 # ==============================================================================
@@ -846,1037 +553,7 @@ LOGIN_HTML = (Path(BASE_DIR) / "web" / "login.html").read_text(encoding="utf-8")
 # ==============================================================================
 # PÁGINA 2: PAINEL ADMINISTRATIVO WHATSAPP & COMUNIDADES (/admin)
 # ==============================================================================
-ADMIN_HTML = """<!DOCTYPE html>
-<html lang="pt-BR">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>O Fornecedor · Central Administrativa</title>
-  <style>
-    :root {
-      --bg: #0b1120;
-      --card: #111827;
-      --card-border: #1f2937;
-      --text: #f8fafc;
-      --muted: #94a3b8;
-      --accent: #10b981;
-      --accent-hover: #059669;
-      --warn: #f59e0b;
-      --danger: #ef4444;
-      --blue: #3b82f6;
-      --purple: #a855f7;
-    }
-    * { box-sizing: border-box; }
-    body {
-      margin: 0;
-      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
-      background: var(--bg);
-      color: var(--text);
-      padding: 20px;
-    }
-    .container { max-width: 1320px; margin: 0 auto; }
-    header {
-      display: flex;
-      flex-wrap: wrap;
-      justify-content: space-between;
-      align-items: center;
-      gap: 14px;
-      padding-bottom: 18px;
-      border-bottom: 1px solid var(--card-border);
-      margin-bottom: 20px;
-    }
-    header h1 { margin: 0; font-size: 22px; display: flex; align-items: center; gap: 10px; }
-    .badge {
-      padding: 6px 14px;
-      border-radius: 999px;
-      font-size: 12px;
-      font-weight: 700;
-      letter-spacing: 0.4px;
-      text-transform: uppercase;
-    }
-    .badge.CONNECTED { background: rgba(16, 185, 129, 0.2); color: #34d399; border: 1px solid #059669; }
-    .badge.QR_READY { background: rgba(245, 158, 11, 0.2); color: #fbbf24; border: 1px solid #d97706; }
-    .badge.DISCONNECTED, .badge.CONNECTING { background: rgba(148, 163, 184, 0.15); color: #cbd5e1; border: 1px solid #475569; }
-    .badge.AUTOJOIN { background: rgba(168, 85, 247, 0.2); color: #d8b4fe; border: 1px solid #9333ea; }
-
-    .grid-top {
-      display: grid;
-      grid-template-columns: 360px 1fr;
-      gap: 20px;
-      margin-bottom: 20px;
-    }
-    @media (max-width: 920px) { .grid-top { grid-template-columns: 1fr; } }
-    .card {
-      background: var(--card);
-      border: 1px solid var(--card-border);
-      border-radius: 14px;
-      padding: 20px;
-      box-shadow: 0 8px 24px rgba(0,0,0,0.3);
-      margin-bottom: 20px;
-    }
-    .card h2 {
-      margin: 0 0 14px 0;
-      font-size: 16px;
-      color: #e2e8f0;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      flex-wrap: wrap;
-      gap: 8px;
-    }
-    .qr-wrapper {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      min-height: 260px;
-      background: #0f172a;
-      border-radius: 12px;
-      padding: 16px;
-      text-align: center;
-    }
-    .qr-wrapper img {
-      width: 240px;
-      height: 240px;
-      border-radius: 10px;
-      background: #fff;
-      padding: 8px;
-    }
-    textarea {
-      width: 100%;
-      min-height: 95px;
-      background: #0f172a;
-      border: 1px solid #334155;
-      border-radius: 10px;
-      color: #f8fafc;
-      padding: 12px;
-      font-size: 14px;
-      line-height: 1.45;
-      resize: vertical;
-    }
-    input[type="number"], input[type="text"] {
-      background: #0f172a;
-      border: 1px solid #334155;
-      border-radius: 8px;
-      color: #f8fafc;
-      padding: 8px 12px;
-      font-size: 14px;
-    }
-    .whatsapp-preview {
-      background: #064e3b;
-      color: #ecfdf5;
-      padding: 12px 16px;
-      border-radius: 12px 12px 12px 2px;
-      font-size: 14px;
-      line-height: 1.45;
-      margin-top: 10px;
-      border: 1px solid #047857;
-    }
-    .btn-row { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 14px; }
-    button, .btn-link {
-      cursor: pointer;
-      border: none;
-      border-radius: 9px;
-      padding: 10px 16px;
-      font-size: 14px;
-      font-weight: 600;
-      transition: all 0.15s;
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      text-decoration: none;
-    }
-    button:disabled { opacity: 0.45; cursor: not-allowed; }
-    .btn-green { background: var(--accent); color: #052e16; }
-    .btn-green:hover:not(:disabled) { background: var(--accent-hover); color: #fff; }
-    .btn-warn { background: var(--warn); color: #1e1b4b; }
-    .btn-danger { background: var(--danger); color: #fff; }
-    .btn-blue { background: var(--blue); color: #fff; }
-    .btn-ghost { background: #1e293b; color: #cbd5e1; border: 1px solid #334155; }
-    .btn-ghost:hover:not(:disabled) { background: #334155; }
-
-    .stats-bar {
-      display: grid;
-      grid-template-columns: repeat(6, 1fr);
-      gap: 12px;
-      margin-bottom: 20px;
-    }
-    @media (max-width: 960px) { .stats-bar { grid-template-columns: repeat(2, 1fr); } }
-    .stat-box {
-      background: var(--card);
-      border: 1px solid var(--card-border);
-      border-radius: 12px;
-      padding: 14px 18px;
-    }
-    .stat-box .label { font-size: 12px; color: var(--muted); text-transform: uppercase; }
-    .stat-box .val { font-size: 24px; font-weight: 700; margin-top: 4px; }
-
-    .grid-bottom {
-      display: grid;
-      grid-template-columns: 1.45fr 1fr;
-      gap: 20px;
-    }
-    @media (max-width: 980px) { .grid-bottom { grid-template-columns: 1fr; } }
-    .table-wrap {
-      max-height: 400px;
-      overflow-y: auto;
-      border: 1px solid #1e293b;
-      border-radius: 10px;
-    }
-    table { width: 100%; border-collapse: collapse; font-size: 13px; }
-    th, td { padding: 9px 12px; text-align: left; border-bottom: 1px solid #1e293b; }
-    th { background: #0f172a; color: #94a3b8; position: sticky; top: 0; z-index: 1; }
-    .pill { padding: 3px 8px; border-radius: 6px; font-size: 11px; font-weight: 700; }
-    .pill.PENDENTE { background: rgba(148,163,184,0.15); color: #cbd5e1; }
-    .pill.ENVIADO, .pill.ENTROU_E_ARQUIVOU { background: rgba(16,185,129,0.2); color: #34d399; }
-    .pill.ERRO { background: rgba(239,68,68,0.2); color: #f87171; }
-    .logs-box {
-      background: #070b14;
-      border: 1px solid #1e293b;
-      border-radius: 10px;
-      height: 400px;
-      overflow-y: auto;
-      padding: 12px;
-      font-family: Consolas, monospace;
-      font-size: 12.5px;
-      color: #94a3b8;
-    }
-    .logs-box div { margin-bottom: 5px; border-bottom: 1px dashed rgba(255,255,255,0.04); padding-bottom: 3px; }
-
-    /* BuscaBusca — central operacional */
-    :root { --bg:#f5f7f8; --card:#fff; --card-border:#e3e9ed; --text:#24343d; --muted:#73818b; --accent:#166858; }
-    body { font-family:Inter,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; padding:30px; }
-    header { padding:12px 0 25px; }
-    header h1 { font-size:25px; letter-spacing:-.8px; }
-    .card { min-width:0; box-shadow:none; border-radius:12px; padding:24px; }
-    .card h2 { flex-wrap:wrap; gap:10px; color:#24343d; font-size:15px; }
-    .stats-bar { gap:12px; }
-    .stat-box { background:#fff; border:1px solid #e3e9ed; box-shadow:none; }
-    .stat-box .val { color:#166858!important; }
-    .stat-box .label { color:#73818b; }
-    input,textarea,select { background:#f8fafb!important; color:#24343d!important; border:1px solid #dce4e8!important; border-radius:7px!important; }
-    button,.btn-link { border-radius:7px!important; font-weight:600; }
-    .btn-blue { background:#166858; color:white; }
-    .btn-green { background:#166858; color:white; }
-    .btn-primary,.btn-success { color:white!important; }
-    .pill.PENDENTE { color:#687c88; background:#eef2f5; }
-    .pill.RESPONDEU { color:#166858; background:#dcefe5; }
-    .pill.INCERTO,.pill.ENVIANDO { color:#986713; background:#fff2d8; }
-    button:disabled { opacity:.5; cursor:not-allowed; }
-    .pill.ENVIADO { color:#166858; background:#eaf6ef; }
-    .btn-ghost { background:white; color:#52636d; border:1px solid #dce4e8; }
-    .badge.CONNECTED { background:#eaf6ef; color:#166858; border-color:#cee7d9; }
-    .badge.CONNECTING,.badge.DISCONNECTED { background:#edf1f4; color:#60717e; border-color:#dce4e8; }
-    .badge.AUTOJOIN { background:#eff4f5; color:#617984; border:0; }
-    .badge.QR_READY { background:#fff4dc; color:#9a6b17; border-color:#eedbb0; }
-    .grid-bottom { grid-template-columns:minmax(0,1.45fr) minmax(0,1fr); }
-    .table-wrap { width:100%; max-width:100%; overflow:auto; }
-    input,textarea { min-width:0; max-width:100%; }
-    table { color:#33444f; }
-    th { background:#f5f8f9!important; color:#627680!important; }
-    td { border-color:#edf0f2!important; }
-    tr:hover { background:#f8fafb!important; }
-    .qr-wrapper { background:#f7faf8; border-color:#e0e9e3; }
-    #connectedInfo { color:#627680!important; overflow-wrap:anywhere; }
-    #logsContainer { background:#1b2b32; border-radius:8px; padding:16px; }
-    #msgPreview { color:#52636d!important; background:#f8fafb; }
-    a:focus-visible,button:focus-visible,input:focus-visible,textarea:focus-visible { outline:3px solid #76c5af; outline-offset:3px; }
-    @media(max-width:980px){ .grid-bottom { grid-template-columns:minmax(0,1fr); } }
-    @media(max-width:640px){ #newSupName,#newSupPhone { width:100%; flex:auto!important; } #newSupName { min-width:100%; } body { padding:16px; } header h1 { font-size:21px; } .card { padding:16px; } .stats-bar { grid-template-columns:repeat(2,minmax(0,1fr)); } .grid-top { grid-template-columns:minmax(0,1fr); } }
-  </style>
-</head>
-<body>
-  <div class="container">
-    <header>
-      <div>
-        <h1>O Fornecedor · Central Administrativa</h1>
-        <div style="font-size:13px;color:var(--muted);margin-top:4px;">
-          <strong>Trava Manual Ativa:</strong> Nenhum disparo é feito sem sua autorização. Os envios dependem da conexão, da autorização do contato e das travas da conta.
-        </div>
-      </div>
-      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
-        <a href="/" class="btn-link btn-blue">Voltar ao buscador</a>
-        <span class="badge AUTOJOIN">CONTROLES DE AUTOMAÇÃO</span>
-        <span id="waStatusBadge" class="badge CONNECTING">Verificando...</span>
-        <span id="campaignBadge" class="badge DISCONNECTED">DISPARO PARADO</span>
-        <button class="btn-ghost" onclick="logoutPanel()" style="padding:6px 12px;font-size:12px;">Sair</button>
-      </div>
-    </header>
-
-    <!-- Card 0: Gestão de Contas / Acessos do Buscador (Master Exclusivo) -->
-    <div class="card" id="accountsCard">
-      <h2>
-        <span>Gestão de Contas · O Fornecedor</span>
-        <span id="accDbBadge" style="font-size:12px;color:var(--muted);font-weight:normal;">Banco SQLite persistente · apenas <code>admin</code> possui ajuste de preço</span>
-      </h2>
-      <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end;margin-bottom:16px;">
-        <div style="flex:1;min-width:150px;">
-          <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px;">Nome / Loja</label>
-          <input type="text" id="accName" placeholder="Ex: Loja do João" style="width:100%;" />
-        </div>
-        <div style="min-width:140px;">
-          <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px;">Usuário (login)</label>
-          <input type="text" id="accUser" placeholder="Ex: joao" style="width:100%;" />
-        </div>
-        <div style="min-width:140px;">
-          <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px;">Senha</label>
-          <input type="text" id="accPass" placeholder="Mín. 3 caracteres" style="width:100%;" />
-        </div>
-        <div style="min-width:155px;">
-          <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px;">Vencimento (opcional)</label>
-          <input type="date" id="accExpiry" style="width:100%;" />
-        </div>
-        <button class="btn-green" onclick="createAccount()">+ Adicionar login</button>
-      </div>
-      <div id="accFeedback" style="font-size:13px;margin-bottom:10px;display:none;"></div>
-      <div style="overflow-x:auto;">
-        <table>
-          <thead>
-            <tr>
-              <th>Usuário</th>
-              <th>Nome / Loja</th>
-              <th>Perfil</th>
-              <th>Status</th>
-              <th>Vencimento</th>
-              <th>Último acesso</th>
-              <th>Ações</th>
-            </tr>
-          </thead>
-          <tbody id="accountsTbody">
-            <tr><td colspan="7" style="color:var(--muted);text-align:center;">Carregando contas...</td></tr>
-          </tbody>
-        </table>
-      </div>
-    </div>
-
-    <div id="pauseNotice" hidden role="status" style="background:#fff2d8;color:#815714;padding:16px;border-radius:8px;margin-bottom:20px;">Conta com restrição: envios e entradas automáticas pausados. Configurações e histórico continuam disponíveis.</div>
-    <div class="stats-bar">
-      <div class="stat-box">
-        <div class="label">Total Fornecedores</div>
-        <div class="val" id="stTotal">0</div>
-      </div>
-      <div class="stat-box">
-        <div class="label">Pendentes Envio</div>
-        <div class="val" id="stPending" style="color:#fbbf24;">0</div>
-      </div>
-      <div class="stat-box">
-        <div class="label">Mensagens Enviadas</div>
-        <div class="val" id="stSent" style="color:#34d399;">0</div>
-      </div>
-      <div class="stat-box">
-        <div class="label">Comunidades Arquivadas</div>
-        <div class="val" id="stCommunities" style="color:#c084fc;">0</div>
-      </div>
-      <div class="stat-box">
-        <div class="label">Produtos no Buscador</div>
-        <div class="val" id="stProducts" style="color:#38bdf8;">0</div>
-      </div>
-      <div class="stat-box">
-        <div class="label">Erros / Falhas</div>
-        <div class="val" id="stErrors" style="color:#f87171;">0</div>
-      </div>
-    </div>
-
-    <p id="replySummary" style="margin:0 0 18px;color:var(--muted);font-size:13px;">Histórico permanente. A fila continua somente pelos contatos pendentes.</p>
-    <p style="margin:0 0 18px;color:var(--muted);font-size:12px;">As respostas anteriores serão identificadas conforme o WhatsApp sincronizar. Sem resposta registrada não significa que o fornecedor nunca respondeu.</p>
-    <!-- Card 0B: Robô de Cobertura de Comunidades, Canais e Contatos -->
-    <div class="card" id="coverageCard">
-      <h2>
-        <span>Robô de Cobertura · Comunidades, Canais e Contatos</span>
-        <div style="display:flex;align-items:center;gap:8px;">
-          <span id="covStatusBadge" class="badge CONNECTING">Auditando...</span>
-          <button class="btn-ghost" onclick="runCoverageAuditNow()" style="padding:5px 10px;font-size:12px;">Verificar agora</button>
-        </div>
-      </h2>
-      <div id="covSummary" style="font-size:13px;color:var(--muted);line-height:1.6;">Carregando cobertura de comunidades, grupos e contatos...</div>
-    </div>
-
-    <div class="grid-top">
-      <!-- Card 1: Conexão WhatsApp -->
-      <div class="card" style="margin-bottom:0;">
-        <h2>
-          <span>Conexão do WhatsApp</span>
-          <button class="btn-ghost" onclick="logoutWhatsApp()" style="padding:5px 10px;font-size:12px;">Trocar / Desconectar</button>
-        </h2>
-        <div class="qr-wrapper" id="qrContainer">
-          <div style="color:var(--muted);">Carregando QR Code...</div>
-        </div>
-        <div id="connectedInfo" style="margin-top:12px;font-size:13px;color:#cbd5e1;text-align:center;"></div>
-      </div>
-
-      <!-- Card 2: Mensagem & Controle Manual -->
-      <div class="card" style="margin-bottom:0;">
-        <h2>
-          <span>Mensagens para fornecedores</span>
-          <span style="font-size:12px;color:var(--muted);font-weight:normal;">Variáveis opcionais: <code>{nome}</code>, <code>{localizacao}</code></span>
-        </h2>
-
-        <label style="font-size:13px;color:var(--muted);display:block;margin-bottom:6px;">Texto que será enviado para cada fornecedor:</label>
-        <label>Modelo 1 · Pedido direto</label><textarea id="msgInput" oninput="updatePreview()" style="min-height:80px;"></textarea>
-        <details style="margin:12px 0;"><summary style="cursor:pointer;">Editar os outros quatro modelos</summary>
-          <label>Modelo 2 · Ofertas do dia</label><textarea id="msgInput2" style="min-height:80px;"></textarea>
-          <label>Modelo 3 · Cotação da loja</label><textarea id="msgInput3" style="min-height:80px;"></textarea>
-          <label>Modelo 4 · Condições de compra</label><textarea id="msgInput4" style="min-height:80px;"></textarea>
-          <label>Modelo 5 · Catálogo e preferência de contato</label><textarea id="msgInput5" style="min-height:80px;"></textarea>
-        </details>
-        <p style="font-size:12px;color:var(--muted);">Escolha o modelo adequado por fornecedor. Textos diferentes e intervalos maiores não garantem evitar restrições. Envie apenas para quem autorizou ou espera esse contato.</p>
-
-        <div style="font-size:12px;color:var(--muted);margin-top:8px;">Pré-visualização exata no WhatsApp:</div>
-        <div class="whatsapp-preview" id="msgPreview"></div>
-
-        <div style="display:flex;flex-wrap:wrap;gap:16px;align-items:center;margin-top:14px;">
-          <div>
-            <label style="font-size:12px;color:var(--muted);">Intervalo Mínimo (seg):</label><br/>
-            <input type="number" id="delayMin" value="300" min="300" max="86400" style="width:90px;margin-top:4px;" />
-          </div>
-          <div>
-            <label style="font-size:12px;color:var(--muted);">Intervalo Máximo (seg):</label><br/>
-            <input type="number" id="delayMax" value="600" min="300" max="86400" style="width:90px;margin-top:4px;" />
-          </div>
-          <div><label style="font-size:12px;">Limite por rodada:</label><br><input id="roundLimit" type="number" min="1" max="20" value="5" style="width:90px;margin-top:4px;"></div>
-          <div style="flex:1;min-width:220px;">
-            <label style="font-size:12px;color:var(--muted);">Enviar teste avulso para um número:</label>
-            <div style="display:flex;gap:6px;margin-top:4px;">
-              <input type="text" id="testPhone" placeholder="Ex: 5511999999999" style="flex:1;" />
-              <button class="btn-ghost" onclick="sendTest()">Testar Envio</button>
-            </div>
-          </div>
-        </div>
-
-        <div class="btn-row">
-          <button class="btn-blue" onclick="saveConfig()">Salvar modelos e intervalos</button>
-          <button class="btn-green" id="btnStart" onclick="startCampaign()">Continuar envios pendentes</button>
-          <button class="btn-warn" id="btnStop" onclick="stopCampaign()" disabled>Pausar Disparo</button>
-        </div>
-        <div id="currentSending" style="margin-top:12px;font-size:13px;color:#38bdf8;font-weight:600;"></div>
-      </div>
-    </div>
-
-    <!-- Card 3: Simulador / Importador Manual de Lista para o Buscador (oculto por ora) -->
-    <div class="card" style="display:none;">
-      <h2>
-        <span>Importar lista de preços</span>
-        <div style="display:flex;gap:8px;">
-          <button class="btn-ghost" onclick="loadSampleList()" style="padding:6px 12px;font-size:12px;">Preencher Lista de Exemplo</button>
-          <button class="btn-ghost" onclick="clearProducts()" style="padding:6px 12px;font-size:12px;color:#f87171;">Limpar catálogo</button>
-        </div>
-      </h2>
-      <p style="margin:0 0 10px 0;font-size:13px;color:var(--muted);">
-        O sistema já captura automaticamente todas as listas que os fornecedores mandam nos grupos/comunidades. Se quiser testar ou colar uma lista manualmente agora, preencha abaixo:
-      </p>
-      <div style="display:flex;gap:10px;margin-bottom:10px;flex-wrap:wrap;">
-        <input type="text" id="manualListSupplier" placeholder="Nome do Fornecedor (ex: BOB CELL 0277)" style="flex:1;min-width:220px;" />
-        <input type="text" id="manualListPhone" placeholder="WhatsApp do Fornecedor (ex: 5511977770277)" style="flex:1;min-width:220px;" />
-      </div>
-      <textarea id="manualListText" placeholder="Cole aqui a lista de produtos e preços do fornecedor..." style="min-height:110px;"></textarea>
-      <div class="btn-row">
-        <button class="btn-green" onclick="submitManualList()">Processar e publicar ofertas</button>
-        <a href="/" class="btn-link btn-ghost">Ver catálogo</a>
-      </div>
-    </div>
-
-    <!-- Card 4: Comunidades Entradas e Contatos Arquivados Monitorados -->
-    <div class="card">
-      <h2>
-        <span>Conversas e grupos monitorados</span>
-        <div style="display:flex;gap:8px;flex-wrap:wrap;">
-          <input type="text" id="manualInviteLink" placeholder="Colar link chat.whatsapp.com/... para entrar e arquivar" style="width:300px;font-size:12px;" />
-          <button class="btn-ghost" onclick="joinManualCommunity()" style="padding:6px 12px;font-size:12px;">Entrar e Arquivar Agora</button>
-          <button class="btn-blue" onclick="archiveAllNow()" style="padding:6px 12px;font-size:12px;">Sincronizar conversas</button>
-        </div>
-      </h2>
-      <p style="margin:0 0 10px 0;font-size:12px;color:#34d399;">
-        A conexão permanece ativa. O catálogo aceita listas do dia recebidas entre 06h e 18h, no horário de Brasília.
-      </p>
-      <p id="captureStatus" role="status" style="font-size:12px;color:var(--muted);">Aguardando estado da captura…</p>
-      <p id="inviteQueueStatus" style="font-size:12px;color:var(--muted);margin:10px 0;">Convites recebidos dos fornecedores cadastrados serão processados automaticamente.</p>
-      <div class="table-wrap" style="max-height:240px;">
-        <table>
-          <thead>
-            <tr>
-              <th>Última Atividade</th>
-              <th>Contato / Comunidade / Grupo Arquivado</th>
-              <th>Tipo de Canal</th>
-              <th>Identificador / Link</th>
-              <th>Status</th>
-            </tr>
-          </thead>
-          <tbody id="commTableBody"></tbody>
-        </table>
-      </div>
-    </div>
-
-    <div class="grid-bottom">
-      <!-- Lista de Fornecedores -->
-      <div class="card">
-        <h2>
-          <span>Lista de fornecedores</span><select id="supplierStatusFilter" aria-label="Filtrar situação do fornecedor" onchange="renderTable()" style="width:210px;"><option value="ALL">Todas as situações</option><option value="PENDENTE">Pendentes de envio</option><option value="ENVIADO">Enviados</option><option value="RESPONDEU">Responderam</option><option value="SEM_RESPOSTA">Sem resposta registrada</option><option value="CONFERIR">Conferir envio</option></select>
-          <input type="text" id="searchInput" placeholder="Buscar fornecedor ou telefone..." oninput="renderTable()" style="width:240px;font-size:12px;padding:6px 10px;" />
-        </h2>
-        <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px;">
-          <input type="text" id="newSupName" placeholder="Nome do contato" style="flex:1;font-size:12px;" />
-          <input type="text" id="newSupPhone" placeholder="Telefone (ex: 5511999999999)" style="flex:1;font-size:12px;" />
-          <button class="btn-ghost" onclick="addSupplier()" style="padding:6px 12px;font-size:12px;">+ Adicionar Contato</button>
-        </div>
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>#</th>
-                <th>Fornecedor</th>
-                <th>Telefone</th>
-                <th>Dias c/ Lista</th>
-                <th>Status</th>
-                <th>Permissão e modelo</th>
-                <th>Ação</th>
-              </tr>
-            </thead>
-            <tbody id="supTableBody"></tbody>
-          </table>
-        </div>
-      </div>
-
-      <!-- Logs em tempo real -->
-      <div class="card">
-        <h2>
-          <span>Atividade recente</span>
-        </h2>
-        <div class="logs-box" id="logsContainer"></div>
-      </div>
-
-    </div>
-  </div>
-
-  <script>
-    function escapeHTML(value) {
-      return String(value ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
-    }
-    let stateLoading = false;
-    let allSuppliers = [];
-    let historyMap = {};
-    let configLoaded = false;
-    let automationPaused = true;
-
-    function updatePreview() {
-      const raw = document.getElementById('msgInput').value || '';
-      const sample = raw
-        .replace(/\\{nome\\}/g, 'ADELS MUNDO CEL')
-        .replace(/\\{telefone\\}/g, '5511962254545')
-        .replace(/\\{localizacao\\}/g, 'SHOPPING ORIENTAL');
-      document.getElementById('msgPreview').textContent = sample;
-    }
-
-    async function loadState() {
-      if (stateLoading) return;
-      stateLoading = true;
-      try {
-        const res = await fetch('/api/panel-state', { signal: AbortSignal.timeout(15000), cache: 'no-store' });
-        if (!res.ok) throw new Error('Falha ao atualizar painel');
-        const data = await res.json();
-
-        if (!configLoaded && data.config) {
-          const templates = data.config.mensagens || [data.config.mensagem || ''];
-          for (let index = 0; index < 5; index++) document.getElementById('msgInput' + (index ? index + 1 : '')).value = templates[index] || '';
-          document.getElementById('roundLimit').value = data.config.limite_rodada || 5;
-          document.getElementById('delayMin').value = data.config.delay_min || 300;
-          document.getElementById('delayMax').value = data.config.delay_max || 600;
-          updatePreview();
-          configLoaded = true;
-        }
-
-        automationPaused = !!data.automationPaused;
-        document.getElementById('pauseNotice').hidden = !automationPaused;
-        allSuppliers = data.fornecedores || [];
-        historyMap = data.historico || {};
-
-        const wa = data.whatsapp || {};
-        const capture = wa.capture || {};
-        const lastList = capture.lastProcessedAt ? new Date(capture.lastProcessedAt).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' }) : 'nenhuma nesta execução';
-        document.getElementById('captureStatus').textContent =
-          (capture.pending || 0) + ' listas aguardando processamento · ' + (capture.failed || 0) + ' exigem conferência · Última lista processada: ' + lastList +
-          (capture.lastError ? ' · ' + capture.lastError : '');
-        const comms = wa.communities || [];
-        const archivedList = wa.archivedMonitored || [];
-        document.getElementById('inviteQueueStatus').textContent = (wa.pendingInvites || 0) + ' convites na fila automática. Convites que exigem aprovação aguardam o administrador.';
-
-        document.getElementById('stTotal').textContent = data.stats.total;
-        document.getElementById('stPending').textContent = data.stats.pending;
-        document.getElementById('stSent').textContent = data.stats.sent;
-        document.getElementById('stCommunities').textContent = Math.max(
-          comms.filter(c => ['ENTROU','ENTROU_E_ARQUIVOU'].includes(c.status)).length,
-          archivedList.length
-        );
-        document.getElementById('stProducts').textContent = data.stats.productsCount || 0;
-        document.getElementById('stErrors').textContent = data.stats.errors;
-        document.getElementById('replySummary').textContent = data.respostasCount + ' fornecedores com resposta registrada. ' + (data.stats.eligible || 0) + ' contatos aptos para envio. Histórico permanente.';
-        if (data.coverageAudit) renderCoverage(data.coverageAudit);
-
-        const commBody = document.getElementById('commTableBody');
-        const combinedRows = [];
-        for (const c of comms.slice().reverse()) {
-          combinedRows.push({
-            time: c.joinedAt || '-',
-            name: c.groupName || 'Comunidade',
-            type: c.senderName || 'Comunidade / Grupo',
-            id: c.link || c.code || '-',
-            status: c.status === 'ENTROU_E_ARQUIVOU' ? 'ENTROU E ARQUIVOU' : c.status === 'AGUARDANDO_APROVACAO' ? 'AGUARDANDO APROVAÇÃO' : (c.status || 'ATIVO')
-          });
-        }
-        for (const a of archivedList.slice().reverse()) {
-          if (!combinedRows.some(r => r.name === a.name || r.id === a.jid)) {
-            combinedRows.push({
-              time: a.lastActivity || '-',
-              name: a.name || a.jid,
-              type: a.type || 'Contato Arquivado',
-              id: a.jid || '-',
-              status: 'MONITORANDO ARQUIVADO'
-            });
-          }
-        }
-
-        if (combinedRows.length === 0) {
-          commBody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#94a3b8;">Conecte o WhatsApp para sincronizar as conversas. Convites recebidos de fornecedores cadastrados entram automaticamente na fila.</td></tr>';
-        } else {
-          commBody.innerHTML = combinedRows.map(r => (
-            '<tr>' +
-              '<td style="color:#94a3b8;font-size:12px;">' + escapeHTML(r.time) + '</td>' +
-              '<td><strong>' + escapeHTML(r.name) + '</strong></td>' +
-              '<td>' + escapeHTML(r.type) + '</td>' +
-              '<td><code>' + escapeHTML(r.id) + '</code></td>' +
-              '<td><span class="pill ENTROU_E_ARQUIVOU">' + escapeHTML(r.status) + '</span></td>' +
-            '</tr>'
-          )).join('');
-        }
-
-        const waBadge = document.getElementById('waStatusBadge');
-        waBadge.className = 'badge ' + (wa.status || 'CONNECTING');
-        waBadge.textContent = wa.status === 'CONNECTED'
-          ? 'WHATSAPP CONECTADO'
-          : (wa.status === 'RECONNECTING' ? 'RECONECTANDO…' : (wa.status === 'QR_READY' ? 'AGUARDANDO QR CODE' : (wa.status || 'CONECTANDO')));
-
-        const qrBox = document.getElementById('qrContainer');
-        const connInfo = document.getElementById('connectedInfo');
-        if (wa.status === 'CONNECTED') {
-          qrBox.innerHTML = '<div style="font-size:24px;font-weight:800;color:#34d399;margin-bottom:6px;">[CONECTADO]</div><div style="font-weight:700;color:#34d399;margin-top:8px;">Aparelho conectado</div><div style="font-size:12px;color:#94a3b8;margin-top:4px;">Captura de listas das 06h às 18h (Brasília). Envios dependem de comando no painel.</div>';
-          connInfo.textContent = wa.user ? ('Conectado como: ' + wa.user.name + ' (' + wa.user.id + ')') : '';
-        } else if (wa.status === 'RECONNECTING') {
-          qrBox.innerHTML = '<div style="font-size:20px;font-weight:800;color:#fbbf24;margin-bottom:6px;">[RECONECTANDO]</div><div style="font-weight:700;color:#fbbf24;margin-top:6px;">Renovando sessão automaticamente…</div><div style="font-size:12px;color:#94a3b8;margin-top:4px;">Sessão preservada — captura ao vivo retomada em segundos.</div>';
-          connInfo.textContent = wa.user ? ('Sessão ativa: ' + wa.user.name + ' (' + wa.user.id + ')') : '';
-        } else if (wa.status === 'QR_READY' && wa.qrDataUrl) {
-          qrBox.innerHTML = '<img src="' + wa.qrDataUrl + '" alt="QR Code WhatsApp" /><div style="font-size:12px;color:#fbbf24;margin-top:8px;">Escaneie no WhatsApp > Aparelhos conectados</div>';
-          connInfo.textContent = '';
-        } else {
-          const explanation = automationPaused ? 'Conexão automática pausada devido à restrição da conta.'
-            : wa.lastDisconnect?.code === 440 ? 'Esta sessão foi aberta em outra instância. Encerre a instância duplicada antes de reconectar.'
-            : wa.status === 'DISCONNECTED' ? 'WhatsApp desconectado. Aguardando a reconexão automática.' : 'Gerando sessão / QR Code…';
-          qrBox.innerHTML = '<div style="color:#627680;">' + escapeHTML(explanation) + '</div>';
-          connInfo.textContent = '';
-        }
-
-        const camp = data.campaign || {};
-        const cBadge = document.getElementById('campaignBadge');
-        if (camp.running) {
-          cBadge.className = 'badge CONNECTED';
-          cBadge.textContent = 'DISPARANDO EM FILA...';
-          document.getElementById('btnStart').disabled = true;
-          document.getElementById('btnStop').disabled = false;
-          document.getElementById('currentSending').textContent = camp.current_supplier
-            ? ('Processando agora: ' + camp.current_supplier)
-            : '⏳ Aguardando intervalo seguro entre mensagens...';
-        } else {
-          cBadge.className = 'badge DISCONNECTED';
-          cBadge.textContent = 'AGUARDANDO AUTORIZAÇÃO';
-          document.getElementById('btnStart').disabled = automationPaused || wa.status !== 'CONNECTED';
-          document.getElementById('btnStop').disabled = true;
-          document.getElementById('currentSending').textContent = '';
-        }
-
-        document.querySelectorAll('[onclick=\"sendTest()\"],[onclick=\"joinManualCommunity()\"],[onclick=\"archiveAllNow()\"]').forEach(button => button.disabled = automationPaused);
-        renderTable();
-
-        const logs = data.logs || [];
-        document.getElementById('logsContainer').innerHTML = logs.map(l => '<div>' + escapeHTML(l) + '</div>').join('');
-
-      } catch (e) {
-        document.getElementById('waStatusBadge').textContent = 'SEM ATUALIZAÇÃO — tentando novamente';
-      } finally { stateLoading = false; }
-    }
-
-    function renderTable() {
-      const q = (document.getElementById('searchInput').value || '').toLowerCase().trim();
-      const tbody = document.getElementById('supTableBody');
-      let html = '';
-      for (let i = 0; i < allSuppliers.length; i++) {
-        const s = allSuppliers[i];
-        const nome = s.nome || '';
-        const tel = String(s.telefone || '');
-        if (q && !nome.toLowerCase().includes(q) && !tel.includes(q)) continue;
-        const h = historyMap[tel] || {};
-        const st = h.respondeu ? 'RESPONDEU' : (h.status || 'PENDENTE');
-        const filter = document.getElementById('supplierStatusFilter').value;
-        if (filter === 'SEM_RESPOSTA' ? !(h.status === 'ENVIADO' && !h.respondeu) : filter === 'CONFERIR' ? !['INCERTO','ENVIANDO','ERRO','AGUARDANDO_CONFIRMACAO'].includes(st) : filter !== 'ALL' && filter !== st) continue;
-        html += '<tr>' +
-          '<td>' + (i + 1) + '</td>' +
-          '<td><strong>' + escapeHTML(nome) + '</strong></td>' +
-          '<td><code>' + escapeHTML(tel) + '</code></td>' +
-          '<td style="color:#94a3b8;font-size:12px;">' + escapeHTML((s.datas || '-')) + '</td>' +
-          '<td><span class="pill ' + escapeHTML(st) + '">' + escapeHTML(st.replaceAll('_',' ')) + '</span><br><small>' + escapeHTML(h.confirmacao || (h.status === 'ENVIADO' ? 'Registro antigo: sem confirmação detalhada' : '')) + '</small><br><small>' + escapeHTML(h.message_id || '') + '</small></td>' +
-          '<td><label style="font-size:11px;"><input type="checkbox" data-authorize="' + i + '"' + (s.contato_autorizado ? ' checked' : '') + ' style="width:auto;"> Contato autorizado/esperado</label><select data-template="' + i + '" aria-label="Modelo da mensagem">' + [0,1,2,3,4].map(n => '<option value="' + n + '"' + (Number(s.modelo_mensagem || 0) === n ? ' selected' : '') + '>Modelo ' + (n+1) + '</option>').join('') + '</select></td>' +
-          '<td><button class="btn-ghost" data-supplier="' + i + '"' + (automationPaused || !s.contato_autorizado || ['ENVIADO','RESPONDEU','ENVIANDO','INCERTO','AGUARDANDO_CONFIRMACAO'].includes(st) ? ' disabled' : '') + '>Enviar 1x</button></td>' +
-        '</tr>';
-      }
-      tbody.innerHTML = html;
-      tbody.querySelectorAll('[data-authorize],[data-template]').forEach(control => control.addEventListener('change', async () => {
-        const index = Number(control.dataset.authorize ?? control.dataset.template);
-        const row = control.closest('tr');
-        const result = await fetch('/api/supplier-messaging', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({phone:allSuppliers[index].telefone, authorized:row.querySelector('[data-authorize]').checked, template:Number(row.querySelector('[data-template]').value)})});
-        if (!result.ok) alert('Não foi possível salvar as preferências do fornecedor.');
-        await loadState();
-      }));
-      tbody.querySelectorAll('[data-supplier]').forEach(button => button.addEventListener('click', () => {
-        const supplier = allSuppliers[Number(button.dataset.supplier)];
-        sendSingle(String(supplier.telefone || ''), supplier.nome || '');
-      }));
-    }
-
-    async function saveConfig() {
-      const messages = [1,2,3,4,5].map(n => document.getElementById('msgInput' + (n === 1 ? '' : n)).value);
-      while (messages.length && !messages[messages.length - 1].trim()) messages.pop();
-      const payload = {
-        mensagens: messages,
-        limite_rodada: Number(document.getElementById('roundLimit').value || 5),
-        delay_min: Number(document.getElementById('delayMin').value || 300),
-        delay_max: Number(document.getElementById('delayMax').value || 600)
-      };
-      const response = await fetch('/api/save-config', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
-      if (!response.ok) { alert('Não foi possível salvar. Confira os modelos e intervalos.'); return false; }
-      await loadState();
-      return true;
-    }
-
-    async function startCampaign() {
-      if (!await saveConfig()) return;
-      const res = await fetch('/api/start-campaign', { method: 'POST' });
-      const data = await res.json();
-      if (!data.ok) alert(data.error || 'Não foi possível iniciar.');
-      await loadState();
-    }
-
-    async function stopCampaign() {
-      await fetch('/api/stop-campaign', { method: 'POST' });
-      await loadState();
-    }
-
-    async function logoutWhatsApp() {
-      if (!confirm('Deseja desconectar a sessão atual e gerar um novo QR Code?')) return;
-      await fetch('/api/logout-wa', { method: 'POST' });
-      await loadState();
-    }
-
-    async function sendTest() {
-      const phone = document.getElementById('testPhone').value.trim();
-      if (!phone) return alert('Digite um número para testar.');
-      if (!await saveConfig()) return;
-      const res = await fetch('/api/send-single', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone, name: 'Teste Manual' })
-      });
-      const d = await res.json();
-      if (d.ok) alert(d.confirmed ? 'Mensagem confirmada pelo servidor. Confira a conversa no celular.' : 'Mensagem criada, aguardando confirmação. A fila ficará pausada para conferência.');
-      else alert('Erro: ' + (d.error || 'Falha ao enviar'));
-      await loadState();
-    }
-
-    async function sendSingle(phone, name) {
-      if (!await saveConfig()) return;
-      const res = await fetch('/api/send-single', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone, name })
-      });
-      const d = await res.json();
-      if (!d.ok) alert('Erro: ' + (d.error || 'Falha ao enviar'));
-      await loadState();
-    }
-
-    async function addSupplier() {
-      const nome = document.getElementById('newSupName').value.trim();
-      const telefone = document.getElementById('newSupPhone').value.trim();
-      if (!nome || !telefone) return alert('Preencha nome e telefone.');
-      await fetch('/api/add-supplier', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ nome, telefone })
-      });
-      document.getElementById('newSupName').value = '';
-      document.getElementById('newSupPhone').value = '';
-      await loadState();
-    }
-
-    async function joinManualCommunity() {
-      const link = document.getElementById('manualInviteLink').value.trim();
-      if (!link) return alert('Cole um link chat.whatsapp.com/...');
-      const res = await fetch('/api/join-community', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ linkOrCode: link })
-      });
-      const d = await res.json();
-      if (d.ok) {
-        document.getElementById('manualInviteLink').value = '';
-      } else {
-        alert('Erro: ' + (d.error || 'Falha ao entrar na comunidade'));
-      }
-      await loadState();
-    }
-
-    function loadSampleList() {
-      document.getElementById('manualListSupplier').value = 'BOB CELL 0277';
-      document.getElementById('manualListPhone').value = '5511977770277';
-      document.getElementById('manualListText').value =
-        "IPHONE 16 PRO MAX 256GB\\n" +
-        "PRETO R$ 7.150\\n" +
-        "BRANCO R$ 7.200\\n" +
-        "DESERT TITANIO R$ 7.180\\n\\n" +
-        "IPHONE 15 128GB PRETO R$ 4.320\\n" +
-        "IPHONE 13 128GB SWAP AZUL R$ 2.490\\n" +
-        "MACBOOK AIR M2 8/256GB SPACE GRAY R$ 5.450\\n" +
-        "IPAD 10 64GB SILVER R$ 2.150\\n" +
-        "APPLE WATCH S10 46MM PRETO R$ 2.480\\n" +
-        "AIRPODS PRO 2 USB-C R$ 1.290\\n" +
-        "REDMI NOTE 13 8/256GB PRETO R$ 980";
-    }
-
-    async function submitManualList() {
-      const supplierName = document.getElementById('manualListSupplier').value.trim() || 'FORNECEDOR MANUAL';
-      const supplierPhone = document.getElementById('manualListPhone').value.trim() || '';
-      const text = document.getElementById('manualListText').value.trim();
-      if (!text) return alert('Cole o texto da lista de preços.');
-      const res = await fetch('/api/manual-ingest-list', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ supplierName, supplierPhone, text })
-      });
-      const d = await res.json();
-      if (d.ok) {
-        alert('Sucesso! ' + d.parsedCount + ' produtos foram cadastrados e separados por categoria no Buscador!');
-        document.getElementById('manualListText').value = '';
-      } else {
-        alert('Nenhum produto com preço foi identificado no texto.');
-      }
-      await loadState();
-    }
-
-    async function clearProducts() {
-      if (!confirm('Deseja limpar todos os produtos atualmente listados no Buscador?')) return;
-      await fetch('/api/clear-products', { method: 'POST' });
-      await loadState();
-    }
-
-    async function archiveAllNow() {
-      const res = await fetch('/api/archive-all', { method: 'POST' });
-      const data = await res.json();
-      if (data.ok) {
-        alert('[ARQUIVO] Arquivamento completo! ' + (data.groupCount || 0) + ' grupos/comunidades e ' + (data.chatCount || 0) + ' conversas/listas arquivadas.');
-      } else {
-        alert('Aviso: ' + (data.error || 'Conecte o WhatsApp primeiro.'));
-      }
-      await loadState();
-    }
-
-    function showAccFeedback(msg, isError) {
-      const el = document.getElementById('accFeedback');
-      if (!el) return;
-      el.textContent = msg;
-      el.style.color = isError ? '#f87171' : '#34d399';
-      el.style.display = 'block';
-    }
-
-    async function loadAccounts() {
-      const tbody = document.getElementById('accountsTbody');
-      if (!tbody) return;
-      try {
-        const res = await fetch('/api/accounts', { cache: 'no-store' });
-        if (res.status === 401 || res.status === 403) {
-          window.location.href = '/login?next=/admin';
-          return;
-        }
-        const data = await res.json();
-        if (!data.ok || !Array.isArray(data.accounts)) return;
-        const dbBadge = document.getElementById('accDbBadge');
-        if (dbBadge && data.db) {
-          dbBadge.textContent = 'Banco SQLite isolado (' + data.accounts.length + ' contas · ' + (data.db.backupsCount || 0) + ' backups) · apenas admin tem ajuste';
-        }
-        tbody.innerHTML = '';
-        for (const a of data.accounts) {
-          const tr = document.createElement('tr');
-          const statusColor = a.status === 'ativo' ? '#34d399' : (a.status === 'pausado' ? '#fbbf24' : '#f87171');
-          const perfil = a.is_master
-            ? '<span style="color:#38bdf8;font-weight:600;">Master (Sem DFU)</span>'
-            : (a.dfu_enabled ? '<span style="color:#c084fc;font-weight:600;">Exclusivo (COM DFU)</span>' : '<span style="color:#cbd5e1;">Cliente (Sem DFU)</span>');
-          const expText = a.expires_at ? a.expires_at : 'Sem limite';
-          const lastLogin = a.last_login_at || 'Nunca acessou';
-          const pauseLabel = a.active ? 'Pausar' : 'Ativar';
-          const pauseBtn = a.is_master ? '' : '<button class="btn-ghost" style="padding:4px 8px;font-size:11px;" onclick="toggleAccountPause(' + JSON.stringify(a.username) + ',' + (!a.active) + ')">' + pauseLabel + '</button>';
-          const expBtn = a.is_master ? '' : '<button class="btn-ghost" style="padding:4px 8px;font-size:11px;" onclick="changeAccountExpiry(' + JSON.stringify(a.username) + ',' + JSON.stringify(a.expires_at || '') + ')">Vencimento</button>';
-          const passBtn = '<button class="btn-ghost" style="padding:4px 8px;font-size:11px;" onclick="changeAccountPassword(' + JSON.stringify(a.username) + ')">Senha</button>';
-          const delBtn = (a.is_master || a.dfu_enabled) ? '' : '<button class="btn-ghost" style="padding:4px 8px;font-size:11px;color:#f87171;" onclick="deleteAccount(' + JSON.stringify(a.username) + ')">Remover</button>';
-          tr.innerHTML =
-            '<td><strong>' + escapeHtml(a.username) + '</strong></td>' +
-            '<td>' + escapeHtml(a.name || a.username) + '</td>' +
-            '<td>' + perfil + '</td>' +
-            '<td><span style="color:' + statusColor + ';font-weight:700;text-transform:uppercase;font-size:11px;">' + escapeHtml(a.status) + '</span></td>' +
-            '<td>' + escapeHtml(expText) + '</td>' +
-            '<td style="font-size:12px;color:var(--muted);">' + escapeHtml(lastLogin) + '</td>' +
-            '<td style="display:flex;gap:6px;flex-wrap:wrap;">' + pauseBtn + passBtn + expBtn + delBtn + '</td>';
-          tbody.appendChild(tr);
-        }
-      } catch (e) {}
-    }
-
-    async function createAccount() {
-      const name = document.getElementById('accName').value.trim();
-      const username = document.getElementById('accUser').value.trim();
-      const password = document.getElementById('accPass').value;
-      const expires_at = document.getElementById('accExpiry').value.trim();
-      if (!username || !password) {
-        showAccFeedback('Informe usuário e senha.', true);
-        return;
-      }
-      const res = await fetch('/api/accounts/create', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, username, password, expires_at })
-      });
-      const data = await res.json();
-      if (!res.ok || !data.ok) {
-        showAccFeedback(data.error || 'Erro ao criar login.', true);
-        return;
-      }
-      document.getElementById('accName').value = '';
-      document.getElementById('accUser').value = '';
-      document.getElementById('accPass').value = '';
-      document.getElementById('accExpiry').value = '';
-      showAccFeedback('Login "' + data.account.username + '" criado com sucesso (Sem DFU).', false);
-      await loadAccounts();
-    }
-
-    async function toggleAccountPause(username, active) {
-      const res = await fetch('/api/accounts/pause', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, active })
-      });
-      const data = await res.json();
-      if (!res.ok || !data.ok) {
-        showAccFeedback(data.error || 'Erro ao atualizar conta.', true);
-        return;
-      }
-      showAccFeedback('Conta "' + username + '" ' + (active ? 'ativada.' : 'pausada.'), false);
-      await loadAccounts();
-    }
-
-    async function changeAccountPassword(username) {
-      const password = prompt('Nova senha para "' + username + '" (mínimo 3 caracteres):');
-      if (password === null) return;
-      const res = await fetch('/api/accounts/password', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, password })
-      });
-      const data = await res.json();
-      if (!res.ok || !data.ok) {
-        showAccFeedback(data.error || 'Erro ao alterar senha.', true);
-        return;
-      }
-      showAccFeedback('Senha de "' + username + '" alterada com sucesso.', false);
-      await loadAccounts();
-    }
-
-    async function changeAccountExpiry(username, currentExp) {
-      const expires_at = prompt('Data de vencimento para "' + username + '" (AAAA-MM-DD ou vazio para sem limite):', currentExp || '');
-      if (expires_at === null) return;
-      const res = await fetch('/api/accounts/expiry', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, expires_at: expires_at.trim() })
-      });
-      const data = await res.json();
-      if (!res.ok || !data.ok) {
-        showAccFeedback(data.error || 'Erro ao alterar vencimento.', true);
-        return;
-      }
-      showAccFeedback('Vencimento de "' + username + '" atualizado.', false);
-      await loadAccounts();
-    }
-
-    async function deleteAccount(username) {
-      if (!confirm('Remover permanentemente o login "' + username + '"?')) return;
-      const res = await fetch('/api/accounts/delete', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username })
-      });
-      const data = await res.json();
-      if (!res.ok || !data.ok) {
-        showAccFeedback(data.error || 'Erro ao remover login.', true);
-        return;
-      }
-      showAccFeedback('Login "' + username + '" removido.', false);
-      await loadAccounts();
-    }
-
-    async function logoutPanel() {
-      await fetch('/api/auth/logout', { method: 'POST' });
-      window.location.href = '/login';
-    }
-
-    function renderCoverage(cov) {
-      const badge = document.getElementById('covStatusBadge');
-      const box = document.getElementById('covSummary');
-      if (!badge || !box || !cov) return;
-      const st = cov.status || 'AGUARDANDO';
-      badge.textContent = st === 'OK' ? 'COBERTURA 100% OK' : (st === 'ALERTA' ? 'ATENÇÃO' : st);
-      badge.className = 'badge ' + (st === 'OK' ? 'CONNECTED' : (st === 'ALERTA' ? 'CONNECTING' : 'DISCONNECTED'));
-      const issuesHtml = (cov.issues && cov.issues.length)
-        ? '<div style="margin-top:8px;color:#fbbf24;">⚠️ ' + cov.issues.map(escapeHtml).join(' · ') + '</div>'
-        : '<div style="margin-top:6px;color:#34d399;">✅ Todas as comunidades, canais e contatos monitorados sem falhas na fila.</div>';
-      const unmonHtml = (cov.unmonitoredGroupsCount > 0)
-        ? ' · <strong style="color:#f87171;">' + cov.unmonitoredGroupsCount + ' fora do radar</strong>'
-        : ' · <strong>0 fora do radar</strong>';
-      box.innerHTML =
-        '<div><strong>Mapeados:</strong> ' + (cov.monitoredTotal || 0) +
-        ' (' + (cov.monitoredGroups || 0) + ' grupos/comunidades · ' + (cov.monitoredChannels || 0) + ' canais · ' + (cov.monitoredPrivates || 0) + ' privados)' + unmonHtml + '</div>' +
-        '<div><strong>Leitura hoje:</strong> ' + (cov.activeSuppliersToday || 0) + ' fornecedores ativos (' + (cov.coverageVsYesterdayPct ?? 100) + '% vs ontem)' +
-        ' · ' + (cov.registeredActiveToday || 0) + '/' + (cov.registeredContacts || 0) + ' contatos cadastrados · ' + (cov.activeOriginsToday || 0) + ' origens com ofertas' +
-        ' · fila ' + (cov.capturePending || 0) + ' pend. / ' + (cov.captureFailed || 0) + ' falha(s)</div>' +
-        '<div style="font-size:11px;margin-top:4px;">Última auditoria: ' + escapeHtml(cov.checked || 'aguardando') +
-        (cov.recoveryTriggered ? ' · 🔄 Recuperação automática disparada' : '') + '</div>' +
-        issuesHtml;
-    }
-
-    async function runCoverageAuditNow() {
-      const badge = document.getElementById('covStatusBadge');
-      if (badge) badge.textContent = 'Verificando...';
-      try {
-        const res = await fetch('/api/coverage-audit', { method: 'POST' });
-        const data = await res.json();
-        if (data.ok && data.coverage) renderCoverage(data.coverage);
-      } catch (e) {}
-    }
-
-    setInterval(loadState, 2000);
-    loadState();
-    loadAccounts();
-  </script>
-</body>
-</html>
-"""
+ADMIN_HTML = (Path(BASE_DIR) / "web" / "admin.html").read_text(encoding="utf-8")
 
 
 class PanelHandler(BaseHTTPRequestHandler):
@@ -1983,7 +660,13 @@ class PanelHandler(BaseHTTPRequestHandler):
             if self.command != "HEAD":
                 self.wfile.write(body)
             return
-        assets = {"/catalog.css": "text/css; charset=utf-8", "/catalog.js": "text/javascript; charset=utf-8", "/catalog-ui.js": "text/javascript; charset=utf-8"}
+        assets = {
+            "/catalog.css": "text/css; charset=utf-8",
+            "/catalog.js": "text/javascript; charset=utf-8",
+            "/catalog-ui.js": "text/javascript; charset=utf-8",
+            "/admin.css": "text/css; charset=utf-8",
+            "/admin.js": "text/javascript; charset=utf-8",
+        }
         if parsed.path in assets:
             body = (Path(BASE_DIR) / "web" / parsed.path[1:]).read_bytes()
             self.send_response(200)
@@ -2115,49 +798,23 @@ class PanelHandler(BaseHTTPRequestHandler):
             if not (user and user.get("role") == "master") and not self._is_direct_local_request():
                 self._send_json({"ok": False, "error": "Acesso restrito ao usuário master."}, status=403)
                 return
-            cfg = load_config()
-            fornecedores = load_fornecedores()
-            historico = load_historico()
-            produtos = load_produtos()
             try:
-                wa = bridge_get("/api/status")
-            except Exception:
-                wa = {"status": "PAUSADO" if automation_paused() else "CONNECTING", "logs": [], "communities": [], "automationPaused": automation_paused()}
-
-            respostas = load_respostas()
-            sent = sum(1 for f in fornecedores if history_for_phone(historico, f.get("telefone")).get("status") == "ENVIADO")
-            errors = sum(1 for f in fornecedores if historico.get(str(f.get("telefone", "")).strip(), {}).get("status") == "ERRO")
-            total = len(fornecedores)
-            pending = sum(pending_supplier({**f, "contato_autorizado": True}, historico, respostas) for f in fornecedores)
-            eligible = sum(pending_supplier(f, historico, respostas) for f in fornecedores)
-
-            with state_lock:
-                camp_copy = {
-                    "running": campaign_state["running"],
-                    "current_supplier": campaign_state["current_supplier"],
-                    "sent_session": campaign_state["sent_session"],
-                    "errors_session": campaign_state["errors_session"],
-                }
-                combined_logs = list(wa.get("logs", [])[:45]) + list(campaign_state["logs"][:45])
-
+                wa = bridge_get("/api/status?lite=1")
+                wa_error = None
+            except (OSError, ValueError, TimeoutError) as exc:
+                wa = {"status": "PAUSADO" if automation_paused() else "CONNECTING"}
+                wa_error = f"{type(exc).__name__}: {exc}"
+            groups, groups_checked_at, groups_error = panel_groups_snapshot() if wa.get("status") == "CONNECTED" else ([], None, wa_error or "WhatsApp desconectado.")
             self._send_json({
-                "config": cfg,
-                "automationPaused": automation_paused(),
-                "fornecedores": fornecedores,
-                "historico": {str(f.get("telefone", "")): {**history_for_phone(historico, f.get("telefone")), "respondeu": canonical_phone(f.get("telefone")) in respostas} for f in fornecedores},
-                "respostasCount": sum(canonical_phone(f.get("telefone")) in respostas for f in fornecedores),
+                "updatedAt": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
                 "whatsapp": wa,
-                "campaign": camp_copy,
-                "stats": {
-                    "total": total,
-                    "pending": pending,
-                    "eligible": eligible,
-                    "sent": sent,
-                    "errors": errors,
-                    "productsCount": len(produtos),
-                },
-                "logs": combined_logs[:90],
+                "whatsappError": wa_error,
+                "productsTodayCount": len(load_produtos()),
+                "groups": groups,
+                "groupsCheckedAt": groups_checked_at,
+                "groupsError": groups_error,
                 "coverageAudit": last_coverage_audit,
+                "robots": robot_dashboard_state(),
             })
             return
 
@@ -2272,35 +929,8 @@ class PanelHandler(BaseHTTPRequestHandler):
             self._send_json({"ok": True, "coverage": report})
             return
 
-        if automation_paused() and parsed.path in ("/api/start-campaign", "/api/send-single", "/api/join-community", "/api/archive-all"):
+        if automation_paused() and parsed.path == "/api/join-community":
             self._send_json({"ok": False, "error": "Automações pausadas pela restrição da conta. Apenas configurações e consultas estão disponíveis."}, status=423)
-            return
-
-        if parsed.path == "/api/internal/message-ack":
-            body = self._read_body_json()
-            self._send_json({"ok": True, "recorded": record_message_ack(body.get("phone"), body.get("messageId"), body.get("status"))})
-            return
-
-        if parsed.path == "/api/supplier-messaging":
-            body = self._read_body_json()
-            phone = canonical_phone(body.get("phone"))
-            with data_lock:
-                suppliers = load_fornecedores()
-                supplier = next((item for item in suppliers if canonical_phone(item.get("telefone")) == phone), None)
-                if not supplier:
-                    self._send_json({"error": "Fornecedor não encontrado"}, status=404)
-                    return
-                supplier["contato_autorizado"] = body.get("authorized") is True
-                supplier["modelo_mensagem"] = max(0, min(4, int(body.get("template", 0))))
-                supplier["autorizacao_registrada_em"] = time.strftime("%Y-%m-%d %H:%M:%S")
-                save_fornecedores(suppliers)
-            self._send_json({"ok": True})
-            return
-
-        if parsed.path == "/api/internal/supplier-reply":
-            body = self._read_body_json()
-            recorded = record_supplier_reply(body.get("phone"), body.get("timestamp"), body.get("messageId"))
-            self._send_json({"ok": True, "recorded": recorded})
             return
 
         # Endpoint interno chamado automaticamente pelo whatsapp_bridge.js a cada mensagem recebida nos grupos/comunidades
@@ -2361,106 +991,13 @@ class PanelHandler(BaseHTTPRequestHandler):
             return
 
         # Endpoint para importar/testar lista manualmente pelo /admin
-        if parsed.path == "/api/manual-ingest-list":
-            body = self._read_body_json()
-            sup_name = str(body.get("supplierName", "FORNECEDOR MANUAL")).strip().upper()
-            sup_phone = re.sub(r"\D", "", str(body.get("supplierPhone", "")))
-            text = str(body.get("text", "")).strip()
-
-            timestamp = int(time.time())
-            daily_review.save_message(BASE_DIR, {"supplierName": sup_name, "supplierPhone": sup_phone,
-                                                  "text": text, "groupName": "Importado no Painel",
-                                                  "timestamp": timestamp, "includeNonNew": False})
-            items = parse_supplier_message(text, sup_name, sup_phone, "Importado no Painel", msg_timestamp=timestamp)
-            if items:
-                saved = upsert_parsed_products(items)
-                add_panel_log(f"[PRODUTO] {saved} produtos importados manualmente para o fornecedor {sup_name}")
-                self._send_json({"ok": True, "parsedCount": saved})
-            else:
-                self._send_json({"ok": False, "parsedCount": 0})
-            return
-
-        if parsed.path == "/api/clear-products":
-            with products_lock:
-                atomic_json_write(os.path.join(BASE_DIR, "ultima_limpeza_catalogo.json"),
-                                  {"data": get_today_str(), "hora": time.strftime("%H:%M:%S")})
-                save_produtos([])
-            add_panel_log("[LIMPEZA] Lista de produtos do Buscador foi limpa pelo administrador.")
-            self._send_json({"ok": True})
-            return
-
-        if parsed.path == "/api/save-config":
-            body = self._read_body_json()
-            cfg = load_config()
-            if "mensagens" in body:
-                cfg["mensagens"] = body["mensagens"]
-            elif "mensagem" in body:
-                cfg["mensagens"][0] = str(body["mensagem"])
-            for key in ("delay_min", "delay_max", "limite_rodada"):
-                if key in body:
-                    cfg[key] = body[key]
-            cfg = normalized_messaging_config(cfg)
-            save_config(cfg)
-            add_panel_log("Configurações e mensagem atualizadas no painel.")
-            self._send_json({"ok": True, "config": cfg})
-            return
-
-        if parsed.path == "/api/start-campaign":
-            try:
-                wa = bridge_get("/api/status")
-                if wa.get("status") != "CONNECTED":
-                    self._send_json({"ok": False, "error": "Conecte o WhatsApp pelo QR Code antes de iniciar o disparo!"})
-                    return
-            except Exception:
-                self._send_json({"ok": False, "error": "Motor WhatsApp ainda está iniciando."})
-                return
-
-            with state_lock:
-                if campaign_state["running"]:
-                    self._send_json({"ok": True, "already_running": True})
-                    return
-                campaign_state["running"] = True
-                campaign_state["stop_requested"] = False
-
-            t = threading.Thread(target=campaign_worker, daemon=True)
-            t.start()
-            self._send_json({"ok": True})
-            return
-
-        if parsed.path == "/api/stop-campaign":
-            with state_lock:
-                campaign_state["stop_requested"] = True
-            add_panel_log("⏸️ Solicitação de pausa recebida. Parando fila...")
-            self._send_json({"ok": True})
-            return
-
-        if parsed.path == "/api/reset-history":
-            self._send_json({"ok": False, "error": "Histórico protegido: os envios anteriores não podem ser apagados."}, status=409)
-            return
-
         if parsed.path == "/api/logout-wa":
-            with state_lock:
-                campaign_state["stop_requested"] = True
             try:
                 bridge_post("/api/logout", {})
             except Exception:
                 pass
             add_panel_log("[CONEXAO] Sessão do WhatsApp desconectada. Aguarde o novo QR Code.")
             self._send_json({"ok": True})
-            return
-
-        if parsed.path == "/api/send-single":
-            body = self._read_body_json()
-            phone = str(body.get("phone", "")).strip()
-            name = str(body.get("name", "Contato")).strip()
-            cfg = load_config()
-            supplier = next((item for item in load_fornecedores() if canonical_phone(item.get("telefone")) == canonical_phone(phone)), {"nome": name, "telefone": phone})
-            msg = supplier_message(cfg, supplier)
-            if not phone or not msg.strip():
-                self._send_json({"ok": False, "error": "Telefone e mensagem são obrigatórios."}, status=400)
-                return
-            resp = deliver_supplier(supplier, msg)
-            self._send_json(resp)
             return
 
         if parsed.path == "/api/join-community":
@@ -2477,35 +1014,6 @@ class PanelHandler(BaseHTTPRequestHandler):
                     self._send_json({"ok": False, "error": "O WhatsApp recusou a entrada."}, status=502)
             except (urllib.error.URLError, TimeoutError):
                 self._send_json({"ok": False, "error": "Motor WhatsApp indisponível. Verifique a conexão no painel."}, status=503)
-            return
-
-        if parsed.path == "/api/archive-all":
-            try:
-                resp = bridge_post("/api/archive-all", {})
-                add_panel_log(f"[ARQUIVO] Arquivamento geral executado: {resp.get('groupCount', 0)} grupos/comunidades e {resp.get('chatCount', 0)} conversas.")
-                self._send_json(resp)
-            except Exception as e:
-                self._send_json({"ok": False, "error": str(e)})
-            return
-
-        if parsed.path == "/api/add-supplier":
-            body = self._read_body_json()
-            nome = str(body.get("nome", "")).strip()
-            telefone = "".join(ch for ch in str(body.get("telefone", "")) if ch.isdigit())
-            if not nome or not telefone:
-                self._send_json({"ok": False, "error": "Nome e telefone obrigatórios."})
-                return
-            lista = load_fornecedores()
-            lista.insert(0, {
-                "id": len(lista) + 1,
-                "nome": nome,
-                "telefone": telefone,
-                "localizacao": "Manual",
-                "datas": "Manual",
-            })
-            save_fornecedores(lista)
-            add_panel_log(f"[NOVO] Contato adicionado à lista: {nome} ({telefone})")
-            self._send_json({"ok": True})
             return
 
         self._send_json({"error": "Not found"}, status=404)
@@ -2539,6 +1047,113 @@ def cleanup_old_products_on_start():
 
 
 catalog_monitor = {"checked": None, "issues": {}, "examples": [], "offers": 0}
+ROBOT_INTERVALS = {
+    "colors": "3 min",
+    "price": "5 min",
+    "catalog": "5 min",
+    "daily": "10 min",
+    "coverage": "10 min",
+}
+ROBOT_INTERVAL_SECONDS = {
+    "colors": 180,
+    "price": 300,
+    "catalog": 300,
+    "daily": 600,
+    "coverage": 600,
+}
+_robot_health_lock = threading.Lock()
+_robot_health = {}
+
+
+def record_robot_start(name):
+    with _robot_health_lock:
+        state = dict(_robot_health.get(name, {}))
+        now = time.time()
+        state.update(
+            inProgress=True,
+            startedAt=datetime.datetime.now().astimezone().isoformat(timespec="seconds"),
+            startedAtEpoch=now,
+        )
+        if not state.get("lastError"):
+            state["status"] = "EXECUTANDO"
+        _robot_health[name] = state
+
+
+def record_robot_health(name, report=None, error=None):
+    with _robot_health_lock:
+        state = dict(_robot_health.get(name, {}))
+        now = time.time()
+        state.update(
+            lastRun=datetime.datetime.now().astimezone().isoformat(timespec="seconds"),
+            lastRunEpoch=now,
+            inProgress=False,
+        )
+        state["lastError"] = f"{type(error).__name__}: {error}" if error else None
+        if error:
+            state["status"] = "ERRO"
+        elif report and report.get("status") in ("ALERTA", "CRITICO"):
+            state["status"] = report["status"]
+        elif report and report.get("issues"):
+            state["status"] = "ALERTA"
+        else:
+            state["status"] = "OK"
+        _robot_health[name] = state
+
+
+def robot_dashboard_state():
+    with _robot_health_lock:
+        health = {key: dict(value) for key, value in _robot_health.items()}
+
+    definitions = {
+        "colors": ("Guardião de cores + IA", last_color_audit, "analyzed", "validAfter"),
+        "price": ("Vistoria de preços e catálogo", last_guardian_sweep, "analyzed", "validAfter"),
+        "catalog": ("Monitor de integridade do catálogo", catalog_monitor, "offers", None),
+        "daily": ("Revisão e releitura de listas", {}, None, None),
+        "coverage": ("Auditor de comunidades e cobertura", last_coverage_audit, "monitoredTotal", None),
+    }
+    result = {}
+    for key, (label, report, analyzed_key, valid_key) in definitions.items():
+        state = health.get(key, {})
+        status = state.get("status")
+        if not status:
+            if not report.get("checked"):
+                status = "AGUARDANDO"
+            elif report.get("status") in ("ALERTA", "CRITICO"):
+                status = report["status"]
+            elif report.get("issues"):
+                status = "ALERTA"
+            else:
+                status = "OK"
+        if state.get("inProgress"):
+            status = "ATRASADO" if time.time() - state.get("startedAtEpoch", time.time()) > ROBOT_INTERVAL_SECONDS[key] * 2 else "EXECUTANDO"
+        elif state.get("lastRunEpoch") and time.time() - state["lastRunEpoch"] > ROBOT_INTERVAL_SECONDS[key] * 2 and status != "ERRO":
+            status = "ATRASADO"
+        if key == "catalog":
+            issues = report.get("issues") or {}
+            detail = ", ".join(f"{name}: {count}" for name, count in issues.items()) if issues else "Sem divergências"
+        elif key == "coverage":
+            issues = report.get("issues") or []
+            detail = " · ".join(issues) if issues else f"{report.get('monitoredTotal', 0)} canais monitorados; 0 alertas"
+        elif analyzed_key:
+            detail = f"{report.get(analyzed_key, 0)} verificados"
+            if valid_key:
+                detail += f" · {report.get(valid_key, 0)} válidos"
+            if report.get("removed"):
+                detail += f" · {report['removed']} removidos"
+            if report.get("corrected"):
+                detail += f" · {report['corrected']} corrigidos"
+        else:
+            detail = "Execução concluída" if state.get("lastRun") else "Aguardando primeira execução"
+        result[key] = {
+            "label": label,
+            "intervalLabel": ROBOT_INTERVALS[key],
+            "status": status,
+            "lastRun": state.get("lastRun") or report.get("checked"),
+            "startedAt": state.get("startedAt"),
+            "lastError": state.get("lastError"),
+            "detail": detail,
+        }
+    return result
 
 
 def audit_catalog(rows):
@@ -2612,6 +1227,7 @@ def live_review_worker():
 def daily_review_worker():
     migrated = False
     while True:
+        record_robot_start("daily")
         try:
             if not migrated:
                 daily_review.import_previous_log(BASE_DIR)
@@ -2619,7 +1235,9 @@ def daily_review_worker():
             report = daily_review.run(BASE_DIR, offer_key, apply_reviewed_offers, pace=0.03)
             if report is not None:
                 atomic_json_write(os.path.join(BASE_DIR, "revisao_listas", "ultima_revisao.json"), report)
+            record_robot_health("daily", report=report or {})
         except Exception as exc:
+            record_robot_health("daily", error=exc)
             print(f"[RELEITURA] {type(exc).__name__}: {exc}", flush=True)
         time.sleep(600)
 
@@ -2627,18 +1245,22 @@ def daily_review_worker():
 def catalog_monitor_worker():
     global catalog_monitor
     while True:
+        record_robot_start("catalog")
+        run_error = None
         try:
             rows = load_produtos(only_today=False)
             today = get_today_str()
             report = audit_catalog([r for r in rows if r.get("data") == today and
                                     str(r.get("hora", "")) >= "06:00:00"])
         except Exception as exc:
+            run_error = exc
             report = {"offers": None, "issues": {"Verificação interrompida": 1},
                       "examples": [f"Falha ao verificar o catálogo ({type(exc).__name__})"]}
         report["checked"] = time.strftime("%d/%m/%Y %H:%M:%S")
         if report["issues"] != catalog_monitor["issues"]:
             print(f"[MONITOR] {report['issues'] or 'Nenhuma pendência detectada'}")
         catalog_monitor = report
+        record_robot_health("catalog", report=report, error=run_error)
         try:
             atomic_json_write(os.path.join(BASE_DIR, "monitor_catalogo_interno.json"), report)
         except OSError as exc:
@@ -2863,6 +1485,7 @@ def perform_guardian_sweep(log_anomalies=True):
                 "actions": [],
             }
             last_guardian_sweep = report
+            record_robot_health("price", report=report)
             return report
 
         healed, report = run_guardian_sweep(atuais, offer_key_fn=offer_key, log_anomalies=log_anomalies)
@@ -2880,6 +1503,7 @@ def perform_guardian_sweep(log_anomalies=True):
                 f"[VISTORIA 5MIN] ✅ Vistoria limpa: {report['analyzed']} ofertas ativas conferidas, 0 divergências."
             )
         last_guardian_sweep = report
+        record_robot_health("price", report=report)
         try:
             atomic_json_write(os.path.join(BASE_DIR, "ultima_vistoria_5min.json"), report)
         except OSError as exc:
@@ -2891,9 +1515,11 @@ def guardian_sweep_worker():
     """Robô autônomo que realiza vistoria e autocorreção completa a cada 5 minutos."""
     time.sleep(15)
     while True:
+        record_robot_start("price")
         try:
             perform_guardian_sweep(log_anomalies=True)
         except Exception as exc:
+            record_robot_health("price", error=exc)
             print(f"[VISTORIA 5MIN] Erro na vistoria periódica: {type(exc).__name__}: {exc}", flush=True)
         time.sleep(GUARDIAN_SWEEP_INTERVAL_SECONDS)
 
@@ -2925,6 +1551,7 @@ def perform_color_guardian_audit(log_anomalies=True, allow_learn=True):
                 "actions": [],
             }
             last_color_audit = report
+            record_robot_health("colors", report=report)
             return report
 
         healed, report = color_guardian.run_color_guardian_sweep(
@@ -2944,6 +1571,7 @@ def perform_color_guardian_audit(log_anomalies=True, allow_learn=True):
         if report.get("learnedModels"):
             add_panel_log(f"[ROBÔ DE CORES] 🧠 Cores oficiais aprendidas para: {', '.join(report['learnedModels'])}")
         last_color_audit = report
+        record_robot_health("colors", report=report)
         try:
             atomic_json_write(color_guardian.COLOR_AUDIT_REPORT_FILE, report)
         except OSError as exc:
@@ -2955,9 +1583,11 @@ def color_guardian_worker():
     """Robô autônomo dedicado a auditar e aprender cores oficiais a cada 3 minutos."""
     time.sleep(8)
     while True:
+        record_robot_start("colors")
         try:
             perform_color_guardian_audit(log_anomalies=True, allow_learn=True)
         except Exception as exc:
+            record_robot_health("colors", error=exc)
             print(f"[ROBÔ DE CORES] Erro na auditoria periódica: {type(exc).__name__}: {exc}", flush=True)
         time.sleep(COLOR_AUDIT_INTERVAL_SECONDS)
 
@@ -2978,6 +1608,7 @@ def perform_coverage_audit(allow_recovery=True):
         allow_recovery=allow_recovery,
     )
     last_coverage_audit = report
+    record_robot_health("coverage", report=report)
     try:
         atomic_json_write(coverage_guardian.COVERAGE_REPORT_FILE, report)
     except OSError as exc:
@@ -3000,9 +1631,11 @@ def coverage_guardian_worker():
     """Robô autônomo dedicado a garantir leitura de 100% das comunidades, canais e contatos (a cada 10 min)."""
     time.sleep(25)
     while True:
+        record_robot_start("coverage")
         try:
             perform_coverage_audit(allow_recovery=True)
         except Exception as exc:
+            record_robot_health("coverage", error=exc)
             print(f"[ROBÔ COBERTURA] Erro na auditoria periódica: {type(exc).__name__}: {exc}", flush=True)
         time.sleep(COVERAGE_AUDIT_INTERVAL_SECONDS)
 
@@ -3010,7 +1643,6 @@ def coverage_guardian_worker():
 def main():
     access_control.load_accounts()
     reset_thread.start()
-    load_config()
     cleanup_old_products_on_start()
     threading.Thread(target=catalog_monitor_worker, daemon=True).start()
     threading.Thread(target=guardian_sweep_worker, daemon=True).start()
