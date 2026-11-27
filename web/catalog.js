@@ -951,7 +951,7 @@ export function currentCatalogOffers(offers) {
     const color = colorKeyOf(offer.cor, model, offer.linhaOriginal);
     const key = JSON.stringify([offer.data, supplier, model, capacity, color, normalize(offer.condicao)]);
     const prior = latest.get(key);
-    if (!prior || offer.hora > prior.hora) latest.set(key, offer);
+    if (!prior || offer.hora > prior.hora || (offer.hora === prior.hora && Number(offer.preco) < Number(prior.preco))) latest.set(key, offer);
   }
   return [...latest.values(), ...undated];
 }

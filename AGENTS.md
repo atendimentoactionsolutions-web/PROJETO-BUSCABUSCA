@@ -59,6 +59,10 @@ Este arquivo é carregado automaticamente em **todas as sessões** e auditorias 
 
 11. **Listas verticais (I Smart, 27/11/2026 às 10h04):** modelo, polegadas, RAM/SSD, CPU/GPU, código Axxxx, cores e preço podem estar em linhas separadas. Associar apenas especificações explícitas do mesmo bloco, manter todas as cores com preço compartilhado ou preços próprios e preservar as linhas originais para a releitura. Não inferir RAM nem atravessar o próximo produto. Caso real obrigatório: MacBook Pro M6 14”, 16/1TB, Silver/Black, R$ 16.750.
 12. **Consulta ao fornecedor:** mensagem aprovada: “Olá, tudo bem?\nO [produto detalhado], na cor [cor], por [valor], está disponível?”. Sem perguntas adicionais nem referência a sistema, site, grupo, horário ou origem da oferta.
+13. **Auditoria de listas e cores/configurações reais (27/11/2026):**
+    - `COLOR_ALIASES` em `parser_listas.py` inclui `GLACIAL`/`BORDÔ`/`BORDO`/`LILÁS` para não descartar variantes válidas de iPhone 18 Pro / 18 Pro Max / 14 nem quebrar `evidence_block()`.
+    - `mac_mini_capacity()` + `_is_mac_model()` extraem RAM/SSD em qualquer MacBook/iMac/Mac Mini/Mac Studio (incluindo `TB`, `256GB/8` e `512GB ... 16GB`), preservando a exigência de RAM explícita no bloco original.
+    - `canonicalize_apple_model()` normaliza sufixos ordinais `3a`/`4a`/`5a`/`11a` em Watch Ultra, AirPods e iPad 11 A16, além de variantes multi-linha `AirTag (4 pack)` e variantes `CHIP FÍSICO` vs `E-SIM` em `painel.offer_key()`.
 
 ---
 

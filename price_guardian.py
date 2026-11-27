@@ -299,7 +299,7 @@ def _review_condition_bucket(condition_str, model_str=""):
 
 def sim_variant(row):
     source = str(row.get("contextoOriginal") or row.get("linhaOriginal") or "").upper()
-    if re.search(r"\b(?:COM CHIP|CHIP F[IÍ]SICO|F[IÍ]SICO|DUAL SIM)\b", source):
+    if re.search(r"\b(?:COM CHIP|CHIP(?:\s*/\s*|\s+)F[IÍ]S(?:I)?CO|NANO[\s-]*SIM|F[IÍ]SICO|DUAL SIM)\b", source):
         return "fisico"
     if re.search(r"\b(?:E[ -]?SIM|SEM CHIP)\b", source):
         return "esim"

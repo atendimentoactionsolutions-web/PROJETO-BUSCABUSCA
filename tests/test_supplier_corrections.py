@@ -173,3 +173,37 @@ class SupplierCorrectionTests(unittest.TestCase):
     def test_same_supplier_cannot_manufacture_consensus(self):
         rows = [self.iphone('same', 8200) for _ in range(5)] + [self.iphone('suspect', 7400)]
         self.assertFalse(price_guardian.public_price_review(rows)[1])
+
+    def test_glacial_bordo_mac_ram_airpods_watch_ordinals_and_sim_variants(self):
+        text = """LACRADOS
+IPHONE 18 PRO MAX 256GB CHIP FISICO
+Glacial $ R$ 9.599
+Bordô R$ 9.599
+IPHONE 18 PRO MAX 256GB E-SIM
+Glacial $ R$ 8.550
+MACBOOK AIR M5 512GB 13INCH (A3449/10C CPU/10C GPU/16GB)
+MIDNIGHT R$ 8.100
+Apple Ultra 3a 49mm
+Black / Black Ocean Band $4.750
+AirPods 4a (ANC) $1.050
+AirPods Pro 3a $1.600
+iPad 11a (A16) 128GB
+Rosa $2.950
+AirTag
+(4 pack) R$ 580
+"""
+        with tempfile.TemporaryDirectory() as root:
+            daily_review.save_message(root, self.message(text))
+            reviewed = []
+            daily_review.run(root, painel.offer_key, lambda rows: reviewed.extend(rows) or len(rows))
+            by_mod = {}
+            for r in reviewed:
+                by_mod.setdefault(r['modelo'], []).append(r)
+            self.assertEqual(len(by_mod.get('IPHONE 18 PRO MAX', [])), 3)
+            self.assertEqual({r['cor'] for r in by_mod['IPHONE 18 PRO MAX']}, {'GLACIER', 'BURGUNDY'})
+            self.assertEqual(by_mod['MACBOOK AIR M5 13"'][0]['capacidade'], '16/512GB')
+            self.assertIn('APPLE WATCH ULTRA 3 49MM GPS + CELLULAR', by_mod)
+            self.assertIn('AIRPODS 4 ANC', by_mod)
+            self.assertIn('AIRPODS PRO 3', by_mod)
+            self.assertIn('IPAD 11 A16 WI-FI', by_mod)
+            self.assertIn('AIRTAG 4 PACK', by_mod)

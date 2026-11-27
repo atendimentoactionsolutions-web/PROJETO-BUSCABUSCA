@@ -46,6 +46,8 @@ COLOR_ALIASES = {
     "ESTELAR": "ESTELAR",
     "SILVER": "PRATA",
     "PRATA": "PRATA",
+    "PRATEADO": "PRATA",
+    "PRATEADA": "PRATA",
     "NATURAL CARBON": "PRATA",
     "NATURAL": "NATURAL TITÂNIO",
     "NATURAL TITANIUM": "NATURAL TITÂNIO",
@@ -64,6 +66,7 @@ COLOR_ALIASES = {
     "RADIANT GOLD": "DOURADO",
     "GOLD": "DOURADO",
     "DOURADO": "DOURADO",
+    "DOURADA": "DOURADO",
     "SOFT PINK": "ROSA",
     "ROSE": "ROSA",
     "ROSA GOLD": "ROSA",
@@ -77,7 +80,16 @@ COLOR_ALIASES = {
     "LAVANDA": "LAVANDA",
     "LAVENDER": "LAVANDA",
     "GLACIER": "GLACIER",
+    "GLACIAL": "GLACIER",
+    "GLACIAR": "GLACIER",
+    "GLACIE": "GLACIER",
+    "GLARCEIR": "GLACIER",
     "BURGUNDY": "BURGUNDY",
+    "BORDÔ": "BURGUNDY",
+    "BORDO": "BURGUNDY",
+    "BORDEAUX": "BURGUNDY",
+    "VINHO": "BURGUNDY",
+    "BURGAMDY": "BURGUNDY",
     "DEEP BLUE": "AZUL",
     "BLUE": "AZUL",
     "AZUL": "AZUL",
@@ -99,12 +111,15 @@ COLOR_ALIASES = {
     "PURPLE": "ROXO",
     "ROXO": "ROXO",
     "LILAS": "ROXO",
+    "LILÁS": "ROXO",
     "DEEP PURPLE": "ROXO PROFUNDO",
     "ROXO PROFUNDO": "ROXO PROFUNDO",
     "RED": "VERMELHO",
     "VERMELHO": "VERMELHO",
+    "VERMELHA": "VERMELHO",
     "YELLOW": "AMARELO",
     "AMARELO": "AMARELO",
+    "AMARELA": "AMARELO",
     "COSMIC ORANGE": "LARANJA",
     "ORANGE": "LARANJA",
     "LARANJA": "LARANJA",
@@ -470,15 +485,37 @@ def extract_capacity(text):
     return "-"
 
 
+def _is_mac_model(model_name):
+    u = str(model_name or "").upper()
+    return any(u.startswith(p) for p in ("MACBOOK", "IMAC", "MAC MINI", "MAC STUDIO"))
+
+
 def mac_mini_capacity(line):
     text = CURRENCY_PRICE.sub(" ", line.upper())
-    # Fornecedores também escrevem SSD antes da RAM em linhas de variantes.
-    reverse = re.search(r"\b(256|512|1024)\s*GB(?:\s*/\s*|\s+)(8|16|24|32|48|64)(?:\s*GB|\s*RAM)\b", text)
+    # Fornecedores também escrevem SSD antes da RAM (ex: 256GB/8) ou separam com CPU/GPU.
+    reverse = re.search(
+        r"\b(?:(128|256|512|1024)\s*GB|([1248])\s*TB?)\s*/\s*(8|16|18|24|32|36|48|64|96|128)(?:\s*(?:GB|G|RAM))?\b"
+        r"|\b(?:(128|256|512|1024)\s*GB|([1248])\s*TB?)\s+(8|16|18|24|32|36|48|64|96|128)\s*(?:GB|G|RAM)\b",
+        text,
+    )
     if reverse:
-        return f"{reverse[2]}/{reverse[1]}GB"
-    pair = re.search(r"\b(8|16|24|32|48|64)\s*G(?:B)?\s+(256|512|1024)\s*GB\b", text)
+        if reverse[3]:
+            ssd = f"{reverse[1]}GB" if reverse[1] else f"{reverse[2]}TB"
+            return f"{reverse[3]}/{ssd}"
+        ssd = f"{reverse[4]}GB" if reverse[4] else f"{reverse[5]}TB"
+        return f"{reverse[6]}/{ssd}"
+    pair = re.search(
+        r"\b(8|16|18|24|32|36|48|64|96|128)\s*(?:G(?:B)?(?:\s*RAM)?|RAM)?[\s-]+(?:(128|256|512|1024)\s*GB|([1248])\s*TB?)\b",
+        text,
+    )
     if pair:
-        return f"{pair[1]}/{pair[2]}GB"
+        ssd = f"{pair[2]}GB" if pair[2] else f"{pair[3]}TB"
+        return f"{pair[1]}/{ssd}"
+    ram_only = sorted(set(re.findall(r"\b(8|16|18|24|32|36|48|64|96)\s*(?:GB|G|RAM)\b", text)))
+    ssd_hits = re.findall(r"\b(256|512|1024)\s*GB\b|\b([1248])\s*TB?\b", text)
+    ssd_only = sorted({f"{g}GB" if g else f"{t}TB" for g, t in ssd_hits})
+    if len(ram_only) == 1 and len(ssd_only) == 1:
+        return f"{ram_only[0]}/{ssd_only[0]}"
     return extract_capacity(line)
 
 
@@ -789,8 +826,9 @@ def canonicalize_apple_model(model_name, full_line=""):
     # 4. Apple Watch
     if "WATCH" in u:
         w = re.sub(r"(?:\bAPPLE\s+WATCH\s+)+", "APPLE WATCH ", u)
-        w = re.sub(r"\b(?:SERIES?|S)\s*(\d{1,2})\b", r"S\1", w)
-        w = re.sub(r"\b(SE)\s*(\d)\s*G(?:ERACAO|ER)?\b", r"\1 \2", w)
+        w = re.sub(r"\b(?:SERIES?|S)\s*(\d{1,2})(?:\s*[ªº°A])?\b", r"S\1", w)
+        w = re.sub(r"\b(ULTRA)\s*([2-9])(?:\s*[ªº°A])?\b", r"\1 \2", w)
+        w = re.sub(r"\b(SE)\s*(\d)(?:\s*[ªº°A]|\s*G(?:ERACAO|ER)?)\b", r"\1 \2", w)
         mm_m = re.search(r"\b(38|40|41|42|44|45|46|49)\s*(?:MM|M\b)?", w)
         mm = f"{mm_m.group(1)}MM" if mm_m else ("49MM" if "ULTRA" in w else "")
         base_m = re.search(r"\bAPPLE\s+WATCH\s+(ULTRA\s*[2-9]|S(?:1[0-9]|9)|SE(?:\s*[2-9])?)\b", w)
@@ -809,9 +847,9 @@ def canonicalize_apple_model(model_name, full_line=""):
             return f"AIRPODS MAX {m_max.group(1)} USB-C" if m_max else "AIRPODS MAX 2 USB-C"
         if re.search(r"\bPRO(?:\b|\d)", u):
             # Famílias Pro confirmadas em support.apple.com/en-us/109525.
-            pro = re.search(r"\bPRO\s*([1-3])(?:GER(?:ACAO)?|G)?\b|\b([1-3])(?:GER(?:ACAO)?|G)?\s*PRO\b", u)
+            pro = re.search(r"\bPRO\s*([1-3])(?:[ªº°A]|GER(?:A[ÇC][ÃA]O)?|G)?\b|\b([1-3])(?:[ªº°A]|GER(?:A[ÇC][ÃA]O)?|G)?\s*PRO\b", u)
             return f"AIRPODS PRO {pro[1] or pro[2]}" if pro else ""
-        m_gen = re.search(r"\b([2-9])(?:GER(?:A[CÇ][AÃ]O)?|G)?\b", u)
+        m_gen = re.search(r"\b([2-9])(?:[ªº°A]|GER(?:A[CÇ][ÃA]O)?|G)?\b", u)
         if m_gen:
             gen = m_gen.group(1)
             if gen == "4":
@@ -837,8 +875,8 @@ def canonicalize_apple_model(model_name, full_line=""):
         p = re.sub(r"\+\s*CEL(?:L)?\b", " ", p)
         p = re.sub(r"\+", " ", p)
         p = re.sub(r"\b(12)\s+9(?=\s*-?\s*INCH\b)", r"\1.9", p)
-        p = re.sub(r"\b(\d+)(?:ST|ND|RD|TH)\b(?:\s+(?:GENERATION|GEN)\b)?", r"\1", p)
-        p = re.sub(r"\b(\d+)\s*(?:GERA[CÇ][AÃ]O|GERACAO|GER)\b", r"\1", p)
+        p = re.sub(r"\b(\d+)(?:ST|ND|RD|TH|[ªº°A])\b(?:\s+(?:GENERATION|GEN)\b)?", r"\1", p)
+        p = re.sub(r"\b(\d+)\s*(?:GERA[CÇ][AÃ]O|GERACAO|GER\s*O|GER)\b", r"\1", p)
         p = re.sub(r"\s+", " ", p).strip()
 
         def _extract_ipad_inch(text):
@@ -1250,7 +1288,7 @@ def parse_supplier_message(text, supplier_name, supplier_phone, group_name="", d
                 section_seminovo = False
             header_condition = explicit_condition
             evidence_lines = [line]
-            current_header_capacity = mac_mini_capacity(line) if cand_model.startswith("MAC MINI") else extract_capacity(line)
+            current_header_capacity = mac_mini_capacity(line) if _is_mac_model(cand_model) else extract_capacity(line)
             current_header_color = extract_color(line)
             current_header_price = None
             header_placeholder_idx = None
@@ -1322,7 +1360,7 @@ def parse_supplier_message(text, supplier_name, supplier_phone, group_name="", d
             if section_condition == "CPO" and explicit_condition != "CPO" and not is_cpo_eligible_model(model):
                 section_condition = "Novo / Lacrado" if has_explicit_novo else "Condição não informada"
                 section_seminovo = False
-            cap = mac_mini_capacity(line) if model.startswith("MAC MINI") else extract_capacity(line)
+            cap = mac_mini_capacity(line) if _is_mac_model(model) else extract_capacity(line)
             color = extract_color(line)
             cond_val = explicit_condition or section_condition
             sem = is_seminovo(line, section_seminovo, model, price, has_explicit_novo)
@@ -1376,26 +1414,31 @@ def parse_supplier_message(text, supplier_name, supplier_phone, group_name="", d
             color = extract_color(line)
             if color == "-" and current_header_color != "-":
                 color = current_header_color
-            cap_line = mac_mini_capacity(line) if current_header_model.startswith("MAC MINI") else extract_capacity(line)
+            cap_line = mac_mini_capacity(line) if _is_mac_model(current_header_model) else extract_capacity(line)
             cap = cap_line if cap_line != "-" else current_header_capacity
             if color != "-" or len(line) <= 35:
                 cond_val = explicit_condition or header_condition or section_condition
-                sem = is_seminovo(line, section_seminovo, current_header_model, price, has_explicit_novo)
+                variant_model = current_header_model
+                if variant_model.startswith("AIRTAG"):
+                    pm = re.search(r"\b([14])\s*PACK\b", u)
+                    if pm:
+                        variant_model = ("AIRTAG 2 " if "AIRTAG 2" in variant_model else "AIRTAG ") + f"{pm.group(1)} PACK"
+                sem = is_seminovo(line, section_seminovo, variant_model, price, has_explicit_novo)
                 if sem and cond_val in ("Condição não informada", "Novo / Lacrado", "Novo — lacre não informado") and cond_val != "CPO":
                     cond_val = "Seminovo"
                 if cond_val in ("Ativado", "Deslacrado", "Seminovo", "ASIS"):
                     sem = True
-                cat = classify_category(current_header_model, line)
+                cat = classify_category(variant_model, line)
 
                 # Filtrar estritamente: apenas produtos Apple e sem marcas intrusas na linha
                 if any(bad in u for bad in ("AMAZFIT", "T-REX", "HAYLOU", "HUAWEI", "HOTWAV", "ITEL ", "OUKITEL", "GARMIN", "XIAOMI", "REDMI", "SAMSUNG", "PELLE", "CAPINHA")):
                     continue
-                if not is_allowed_apple_product(current_header_model, cat, sem, allow_seminovo=include_non_new):
+                if not is_allowed_apple_product(variant_model, cat, sem, allow_seminovo=include_non_new):
                     continue
 
                 final_color = color
                 parsed_products.append({
-                    "modelo": current_header_model,
+                    "modelo": variant_model,
                     "capacidade": cap,
                     "cor": final_color,
                     "categoria": cat,
@@ -1408,7 +1451,7 @@ def parse_supplier_message(text, supplier_name, supplier_phone, group_name="", d
                     "origem": group_name or supplier_name,
                     "data": date_str,
                     "hora": time_str,
-                    "linhaOriginal": f"{current_header_model} {cap} ({final_color}) - {line}",
+                    "linhaOriginal": f"{variant_model} {cap} ({final_color}) - {line}",
                 })
 
     for item in parsed_products:

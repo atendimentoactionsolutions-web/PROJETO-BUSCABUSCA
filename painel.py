@@ -490,6 +490,7 @@ def identify_supplier(participant_jid, remote_jid, push_name, group_name, msg_te
 
 
 def offer_key(item):
+    from price_guardian import sim_variant
     phone = re.sub(r"\D", "", str(item.get("telefone") or ""))
     supplier = phone or str(item.get("fornecedor") or item.get("id") or "").strip().casefold()
     model = re.sub(r"\bSE\s*(\d+)\b", r"SE \1", str(item.get("modelo") or "").upper()).strip()
@@ -499,7 +500,8 @@ def offer_key(item):
         model = " ".join(model.split())
     return (item.get("data"), supplier, model,
             re.sub(r"\s+", "", str(item.get("capacidade") or "-")).upper(),
-            offer_color(item), str(item.get("condicao") or "").strip().casefold())
+            offer_color(item), str(item.get("condicao") or "").strip().casefold(),
+            sim_variant(item))
 
 
 reference_wakeup = threading.Event()

@@ -137,13 +137,23 @@ def import_previous_log(root):
                     insert(db, msg)
 
 
+def _is_color_line(text):
+    u = str(text or "").strip().upper()
+    if not u:
+        return False
+    if u in COLOR_ALIASES:
+        return True
+    parts = [p for p in re.split(r"[\s/,|]+", u) if p]
+    return bool(parts) and all(p in COLOR_ALIASES for p in parts)
+
+
 def priced_variant(line):
     amount = CURRENCY_PRICE.search(line)
     if not amount:
-        bare = re.fullmatch(r"(.+?)\s+(" + MONEY_NUMBER + r")", line)
-        return bool(bare and bare[1].upper() in COLOR_ALIASES and extract_price_from_line(line))
-    label = line[:amount.start()].removesuffix("R").strip(" .-").upper()
-    return label in COLOR_ALIASES or bool(re.fullmatch(r"\d+\s*(?:GB|TB)(?:\s+\d+\s*GB)?", label))
+        bare = re.fullmatch(r"(.+?)\s+(" + MONEY_NUMBER + r")\s*(?:R?\$)?", line)
+        return bool(bare and _is_color_line(bare[1]) and extract_price_from_line(line))
+    label = line[:amount.start()].removesuffix("R").strip(" .-$").upper()
+    return _is_color_line(label) or bool(re.fullmatch(r"\d+\s*(?:GB|TB)(?:\s+\d+\s*GB)?", label))
 
 
 def evidence_block(row, positions, lines):
@@ -159,8 +169,9 @@ def evidence_block(row, positions, lines):
             cursor += 1
             while cursor < len(lines) and lines[cursor] != target:
                 skipped = lines[cursor]
-                sibling = ((target.upper() in COLOR_ALIASES and skipped.upper() in COLOR_ALIASES) or
-                           (priced_variant(target) and priced_variant(skipped)))
+                sibling = ((_is_color_line(target) and _is_color_line(skipped)) or
+                           (priced_variant(target) and priced_variant(skipped)) or
+                           (extract_price_from_line(target) is not None and extract_price_from_line(skipped) is not None and not looks_like_product_header(skipped)))
                 if skipped and (not sibling or looks_like_product_header(skipped)):
                     break
                 cursor += 1
