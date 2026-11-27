@@ -555,7 +555,14 @@ def upsert_parsed_products(new_items):
 
         count = 0
         pending = None
+        source_current = {}
         for raw_item in new_items:
+            source_key = (raw_item.get("mensagemOrigem"), raw_item.get("mensagemTimestamp", 0), raw_item.get("mensagemEditada", False))
+            if source_key[0]:
+                if source_key not in source_current:
+                    source_current[source_key] = daily_review.source_is_current(BASE_DIR, *source_key)
+                if not source_current[source_key]:
+                    continue
             review_reason = review_quoted_price(raw_item)
             if review_reason:
                 log_anomaly(raw_item, review_reason)
@@ -599,6 +606,23 @@ def upsert_parsed_products(new_items):
 
         save_produtos(atuais)
         return count
+
+
+def apply_supplier_message(items, message):
+    """Substitui a revisão da mensagem, inclusive quando não resta oferta válida."""
+    with products_lock:
+        if not daily_review.source_is_current(BASE_DIR, daily_review.message_origin(message),
+                                               message["timestamp"], bool(message.get("editKey"))):
+            return 0
+        if message.get("editKey"):
+            origin = daily_review.message_origin(message)
+            current = load_produtos()
+            retained = [row for row in current if not (
+                origin and row.get("mensagemOrigem") == origin and
+                row.get("mensagemTimestamp", 0) <= message["timestamp"])]
+            if retained != current:
+                save_produtos(retained)
+        return upsert_parsed_products(items) if items else 0
 
 
 def midnight_reset_worker():
@@ -2310,11 +2334,14 @@ class PanelHandler(BaseHTTPRequestHandler):
                 "supplierName": sup_name, "supplierPhone": sup_phone, "text": text,
                 "groupName": group_name, "pushName": push_name, "timestamp": msg_ts,
                 "remoteJid": remote_jid, "participantJid": participant_jid,
-                "messageId": body.get("messageId"), "imageBase64": image_base64,
+                "messageId": body.get("messageId"), "editKey": body.get("editKey"), "imageBase64": image_base64,
                 "hasImage": bool(image_base64 or body.get("hasImage")),
                 "mediaIssue": body.get("mediaIssue")
             }
             identity = daily_review.save_message(BASE_DIR, message)
+            if identity is None:
+                self._send_json({"ok": True, "parsedCount": 0, "ignoredSuperseded": True})
+                return
             if message["hasImage"]:
                 items = daily_review.media_offers(BASE_DIR, identity, message, offer_key)
             else:
@@ -2322,8 +2349,9 @@ class PanelHandler(BaseHTTPRequestHandler):
                                                msg_timestamp=msg_ts, include_non_new=True)
                 for item in items:
                     item["fonteCaptura"] = "lista"
+            daily_review.attach_message_source(items, message)
+            saved = apply_supplier_message(items, message)
             if items:
-                saved = upsert_parsed_products(items)
                 add_panel_log(f"[PRODUTO] {saved} produtos capturados automaticamente de {sup_name} ({group_name or 'WhatsApp'})")
                 self._send_json({"ok": True, "parsedCount": saved, "supplierName": sup_name})
             else:
@@ -2559,7 +2587,8 @@ def apply_reviewed_offers(items):
                 continue
             previous = current.get(offer_key(row))
             if previous and (previous["hora"] > row["hora"] or
-                             (previous["hora"] == row["hora"] and previous["preco"] == row["preco"])):
+                             (previous["hora"] == row["hora"] and previous["preco"] == row["preco"] and
+                              previous.get("mensagemOrigem") == row.get("mensagemOrigem"))):
                 continue
             changes.append(row)
         return upsert_parsed_products(changes)

@@ -31,6 +31,8 @@ def database(root):
         (dia TEXT, chave TEXT, texto TEXT NOT NULL, PRIMARY KEY (dia,chave))""")
     db.execute("""CREATE TABLE IF NOT EXISTS revisoes_ao_vivo
         (dia TEXT, chave TEXT, concluida TEXT, PRIMARY KEY (dia,chave))""")
+    db.execute("""CREATE INDEX IF NOT EXISTS mensagens_origem ON mensagens
+        (dia, json_extract(dados, '$.remoteJid'), json_extract(dados, '$.messageId'))""")
     return db
 
 
@@ -70,9 +72,58 @@ def insert(db, msg, live=False):
     return day, key
 
 
+def message_origin(msg):
+    if not msg.get("messageId"):
+        return ""
+    return json.dumps([msg.get("remoteJid") or "", msg.get("messageId")], ensure_ascii=False)
+
+
+def message_revision(msg):
+    return (msg.get("timestamp") or 0, bool(msg.get("editKey")))
+
+
+def latest_message_keys(db, day, origin=None):
+    latest = {}
+    sql = "SELECT chave,dados FROM mensagens WHERE dia=?"
+    args = [day]
+    if origin:
+        remote, message_id = json.loads(origin)
+        sql += " AND json_extract(dados, '$.remoteJid')=? AND json_extract(dados, '$.messageId')=?"
+        args += [remote, message_id]
+    for key, raw in db.execute(sql + " ORDER BY rowid", args):
+        msg = json.loads(raw)
+        origin = message_origin(msg)
+        if origin and (origin not in latest or message_revision(msg) > latest[origin][0]):
+            latest[origin] = (message_revision(msg), key)
+    return {origin: value[1] for origin, value in latest.items()}
+
+
+def source_is_current(root, origin, timestamp, edited=False):
+    if not origin:
+        return True
+    day = time.strftime("%Y-%m-%d", time.localtime(timestamp))
+    with closing(database(root)) as db:
+        key = latest_message_keys(db, day, origin).get(origin)
+        if not key:
+            return True
+        raw = db.execute("SELECT dados FROM mensagens WHERE dia=? AND chave=?", (day, key)).fetchone()
+    return (timestamp, bool(edited)) >= message_revision(json.loads(raw[0]))
+
+
+def attach_message_source(items, msg):
+    for item in items:
+        item["mensagemOrigem"] = message_origin(msg)
+        item["mensagemTimestamp"] = msg["timestamp"]
+        item["mensagemEditada"] = bool(msg.get("editKey"))
+    return items
+
+
 def save_message(root, msg):
     with closing(database(root)) as db, db:
         identity = insert(db, msg, live=True)
+        origin = message_origin(msg)
+        if origin and latest_message_keys(db, identity[0], origin).get(origin) != identity[1]:
+            return None
     live_wakeup.set()
     return identity
 
@@ -155,7 +206,7 @@ def review_message(db, day, message_id, msg, offer_key, stats, pending):
         for i, line in enumerate(lines):
             positions[line].append(i)
         covered = set()
-        for row in rows:
+        for row in attach_message_source(rows, msg):
             index = evidence_block(row, positions, lines)
             ok, reason, item = validate_product(dict(row), allow_seminovo=True, log_anomalies=False)
             issue = review_quoted_price(row) or (reason if not ok else "")
@@ -215,6 +266,7 @@ def run(root, offer_key, apply, *, live=False, pace=0):
                 db.execute("DELETE FROM transcricoes WHERE dia < ?", (day,))
                 db.execute("DELETE FROM revisoes_ao_vivo WHERE dia < ?", (day,))
             keys = db.execute("SELECT chave FROM mensagens WHERE dia=?", (day,)).fetchall()
+        current_keys = latest_message_keys(db, day)
         for (message_id,) in keys:
             if pace:
                 time.sleep(pace)
@@ -222,6 +274,9 @@ def run(root, offer_key, apply, *, live=False, pace=0):
             if time.strftime("%Y-%m-%d") != day:
                 return
             msg = json.loads(raw)
+            origin = message_origin(msg)
+            if origin and current_keys.get(origin) != message_id:
+                continue
             stats["mensagens_relidas"] += 1
             offers = review_message(db, day, message_id, msg, offer_key, stats, pending)
             ts = msg["timestamp"]

@@ -281,6 +281,26 @@ def _review_condition_bucket(condition_str, model_str=""):
     return c
 
 
+def sim_variant(row):
+    source = str(row.get("contextoOriginal") or row.get("linhaOriginal") or "").upper()
+    if re.search(r"\b(?:COM CHIP|CHIP F[IÍ]SICO|F[IÍ]SICO|DUAL SIM)\b", source):
+        return "fisico"
+    if re.search(r"\b(?:E[ -]?SIM|SEM CHIP)\b", source):
+        return "esim"
+    return "nao_informado"
+
+
+def iphone_consensus_issue(row, peer_values):
+    """Retém discrepâncias; nunca converte mediana em preço de venda."""
+    if not str(row.get("modelo", "")).upper().startswith("IPHONE ") or len(peer_values) < 3:
+        return ""
+    median = _median_of(peer_values)
+    agreement = sum(abs(value - median) <= median * 0.04 for value in peer_values)
+    if agreement >= max(3, len(peer_values) * 0.75) and abs(float(row["preco"]) - median) >= max(800, median * 0.08):
+        return f"PRECO_DIVERGENTE_CONSENSO: diferença de R$ {abs(float(row['preco']) - median):.2f}; referência R$ {median:.2f}"
+    return ""
+
+
 def public_price_review(rows):
     """Separa as ofertas publicáveis comparando consenso de fornecedores independentes."""
     groups = {}
@@ -296,7 +316,7 @@ def public_price_review(rows):
         bucket = _review_condition_bucket(raw_condition, row.get("modelo"))
         supplier = _supplier_id(row)
         price = float(row["preco"])
-        group = (variant, bucket)
+        group = (variant, bucket, sim_variant(row))
         mc_key = (row.get("data"), row.get("modelo"), row.get("capacidade"), bucket)
         indexed.append((row, group, mc_key, raw_condition, supplier, price))
         if supplier:
@@ -313,11 +333,15 @@ def public_price_review(rows):
         model_cap_groups[mc_key] = {sid: _median_of(prices) for sid, prices in suppliers.items()}
 
     for row, group, mc_key, raw_condition, supplier, price in indexed:
-        variant, bucket = group
+        variant, bucket, _sim = group
         if raw_condition in {"", "condição não informada"} and (variant, supplier, price) in ambiguous:
             held.append((row, "Mesmo fornecedor e preço com outra condição declarada"))
             continue
         peers = [value for sid, value in groups.get(group, {}).items() if sid != supplier]
+        consensus = iphone_consensus_issue(row, peers)
+        if consensus:
+            held.append((row, consensus))
+            continue
         if len(peers) >= 3:
             median = _median_of(peers)
             agreement = sum(abs(value - median) <= median * 0.08 for value in peers)
@@ -765,6 +789,19 @@ def _check_completeness(product, raw_model):
                 return False, f"INCOMPLETO_MACBOOK_SEM_LINHA: {u_model}"
             if not re.search(r'\b(?:13|14|15|16)"', u_model):
                 return False, f"INCOMPLETO_MACBOOK_SEM_POLEGADAS: {u_model}"
+        # A configuração publicada deve constar no bloco original, nunca apenas
+        # nos campos normalizados ou no prefixo sintético de linhaOriginal.
+        from parser_listas import mac_mini_capacity
+        evidence = str(product.get("contextoOriginal") or source)
+        if ") - " in evidence and not product.get("contextoOriginal"):
+            evidence = evidence.rsplit(") - ", 1)[-1]
+        evidence_cap = _norm_cap_for_guardian(mac_mini_capacity(evidence))
+        if evidence and ("/" not in evidence_cap or evidence_cap != cap_norm):
+            return False, "CONFIGURACAO_MAC_DIVERGE_DA_MENSAGEM"
+        # Apple, ficha 148300 e especificações Liquid Retina XDR, 27/11/2026.
+        if re.search(r"\bM6\b", u_model) and "MACBOOK PRO" in u_model:
+            if u_model != 'MACBOOK PRO M6 14"' or not re.fullmatch(r"(?:16|24|32)/(?:1|2|4)TB", cap_norm.replace("1024GB", "1TB")):
+                return False, "CONFIGURACAO_MAC_M6_INCOMPATIVEL"
         spec_src = f"{cap_norm} {str(product.get('linhaOriginal') or '').upper()} {u_model}"
         ram_m = re.search(r"\b(8|16|18|24|32|36|48|64|96|128)\s*(?:GB|G)?\s*(?:RAM|/)", spec_src) or re.search(r"/\s*(8|16|18|24|32|36|48|64|96|128)\b", spec_src)
         ssd_m = re.search(r"(?:^|/|\s)(?:128|256|512|1024)\s*GB\b|\b([124])\s*TB?\b", cap_norm) or re.search(r"(?:/|\s)((?:128|256|512|1024)GB|[124]TB)\b", spec_src)
@@ -1026,7 +1063,10 @@ def run_guardian_sweep(rows, offer_key_fn=None, log_anomalies=True):
     stage1_list = list(stage1_map.values())
 
     # Fase 2: Consenso de mercado em produtos NOVOS + detecção de inversão de capacidade (ex: 512GB < mediana do 256GB)
-    held_ids = {}
+    _, consensus_held = public_price_review(stage1_list)
+    held_ids = {id(item): reason for item, reason in consensus_held
+                if reason.startswith("PRECO_DIVERGENTE_CONSENSO")}
+
 
     novo_mc_prices = {}
     novo_tier_prices = {}

@@ -913,7 +913,8 @@ async function forwardMessageToProductParser(msg, { isEdited = false, editTimest
     if (!msg || !msg.message) return false;
     const text = extractPlainTextFromMessage(msg.message);
     const hasImg = hasImageInMessage(msg.message);
-    if ((!text || text.trim().length < 8) && !hasImg) return false;
+    const isCorrection = isEdited || !!msg.message?.editedMessage || !!msg.message?.protocolMessage?.editedMessage;
+    if ((!text || text.trim().length < 8) && !hasImg && !isCorrection) return false;
 
     const remoteJid = msg.key?.remoteJid || '';
     if (remoteJid === 'status@broadcast') return false;
@@ -1538,7 +1539,7 @@ async function startWhatsApp() {
           const editTimestamp = supplierEventTime(update.message, update.messageTimestamp);
           try {
             await inspectIncomingMessage(
-              { key, message: editedInner, messageTimestamp: editTimestamp },
+              { key: { ...key, id: update.message.protocolMessage?.key?.id || key.id }, message: editedInner, messageTimestamp: editTimestamp },
               { isEdited: true, editTimestamp }
             );
           } catch (err) {

@@ -52,6 +52,10 @@ Este arquivo é carregado automaticamente em **todas as sessões** e auditorias 
    - `00:00–05:59` BRT: captura bloqueada; `06:00` BRT em diante (até `18:00`): captura texto + imagens (Gemini Vision + fallback OCR filtrado por `_is_clear_ocr_text`).
    - Qualquer oferta confusa, ambígua, incompleta, misturando Novo/Seminovo ou com sinal de não-original (`1ª linha`, `primeira linha`, `segunda linha`, `réplica`, `paralelo`, `similar`, `OEM`, `genérico`, `Foxconn`, `original china`, `clone`, `fake`) é descartada no parser e bloqueada em `price_guardian.py` (`NAO_ORIGINAL_BLOQUEADO`).
 
+8. **Correções de fornecedor e evidência (27/11/2026):** preservar `messageId`, origem, horário e `editKey`; na releitura usar somente a versão vigente da mensagem, mesmo quando a edição elimina variantes ou fica sem oferta válida. Uma entrega antiga não pode ressuscitar a versão substituída. Não usar texto reescrito por IA como evidência de preço/configuração. RAM e SSD de Macs devem constar no bloco original.
+9. **MacBook Pro M6:** modelo existe. Ficha Apple `https://support.apple.com/en-us/148300` e `https://www.apple.com/macbook-pro/liquid-retina-xdr-display/specs/` conferidas em 27/11/2026: M6 base, 14 polegadas, RAM 16/24/32GB, SSD 1/2/4TB. Não extrapolar configurações de outros chips; nunca preencher RAM ausente.
+10. **Consenso de preços de iPhone:** comparar dia/modelo/capacidade/cor/condição/tipo de SIM, contando cada fornecedor uma vez. Reter desvio absoluto de pelo menos `max(R$ 800, 8%)` quando pelo menos três outros fornecedores e 75% dos pares concordarem dentro de 4% da mediana. Não substituir o preço pela mediana nem classificar como seminovo apenas pelo preço. Correção explícita passa novamente por todas as validações.
+
 ---
 
 ## 5. Checklist de Auditoria Diária Obrigatória

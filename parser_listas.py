@@ -1334,37 +1334,6 @@ def parse_supplier_message(text, supplier_name, supplier_phone, group_name="", d
                     "linhaOriginal": f"{current_header_model} {cap} ({final_color}) - {line}",
                 })
 
-    if (
-        not parsed_products
-        and not _gemini_retry
-        and not section_seminovo
-        and os.environ.get("GEMINI_API_KEY", "").strip()
-        and any(k in upper_all for k in ["IPHONE", "IPAD", "MACBOOK", "IMAC", "MAC MINI", "MAC STUDIO", "APPLE WATCH", "WATCH ULTRA", "AIRPODS", "APPLE PENCIL", "MAGIC KEYBOARD", "MAGIC MOUSE", "AIRTAG"])
-    ):
-        prompt = (
-            "Extraia apenas produtos Apple NOVOS LACRADOS ou CPO desta mensagem de fornecedor.\n"
-            "TRAVA DE SEGURANÇA CANÔNICA (OBRIGATÓRIO):\n"
-            "- Descarte cabos, fontes e carregadores, inclusive kits desses itens.\n"
-            "- Ignore totalmente Seminovos, Usados, Vitrine, Swap, As Is, Caixa Aberta, Open Box, Deslacrados, Ativados, 1ª linha, películas ('pelle'), Android e Videogames.\n"
-            "- Use EXATAMENTE nomes oficiais sem sufixos (NUNCA escreva LL/A, HN/A, FÍSICO, chip, Anatel, '18 Duo', cores ou códigos A3xxx no modelo):\n"
-            "  * O dobrável Apple chama-se SEMPRE 'IPHONE DUO' (NUNCA 'IPHONE 18 DUO').\n"
-            "- Escreva na primeira linha 'LACRADOS' (ou 'CPO' apenas para modelos antigos explicitamente CPO) e depois uma linha por oferta:\n"
-            "MODELO CAPACIDADE COR R$ PRECO\n"
-            "- Se todos os itens forem seminovos/ativados/usados ou não houver Apple Novo/CPO com preço, responda apenas VAZIO.\n\n"
-            f"Mensagem:\n{clean_full_text[:4000]}"
-        )
-        gem_out = call_gemini_api(prompt)
-        if gem_out and "VAZIO" not in gem_out.upper():
-            return parse_supplier_message(
-                gem_out,
-                supplier_name,
-                supplier_phone,
-                group_name=group_name,
-                date_str=date_str,
-                image_base64=None,
-                msg_timestamp=msg_timestamp,
-                include_non_new=include_non_new,
-                _gemini_retry=True,
-            )
-
+    # Texto gerado por IA não pode virar evidência do fornecedor. Ofertas que
+    # o parser não consegue vincular ao original ficam fora do catálogo.
     return parsed_products
