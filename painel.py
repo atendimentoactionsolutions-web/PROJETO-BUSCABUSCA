@@ -8,9 +8,11 @@ import random
 import re
 import secrets
 import shutil
+import sqlite3
 import subprocess
 import threading
 import tempfile
+from contextlib import closing
 from pathlib import Path
 import time
 import urllib.error
@@ -329,24 +331,40 @@ def upsert_parsed_products(new_items):
         count = 0
         pending = None
         source_current = {}
+        capture_outcomes = []
+
+        def capture_outcome(raw_item, status, reason=""):
+            if not raw_item.get("mensagemOrigem"):
+                return
+            capture_outcomes.append({
+                "item": raw_item,
+                "offerKey": json.dumps(offer_key(raw_item), ensure_ascii=False),
+                "status": status,
+                "reason": reason,
+            })
+
         for raw_item in new_items:
             source_key = (raw_item.get("mensagemOrigem"), raw_item.get("mensagemTimestamp", 0), raw_item.get("mensagemEditada", False))
             if source_key[0]:
                 if source_key not in source_current:
                     source_current[source_key] = daily_review.source_is_current(BASE_DIR, *source_key)
                 if not source_current[source_key]:
+                    capture_outcome(raw_item, "superseded", "mensagem_substituida")
                     continue
             review_reason = review_quoted_price(raw_item)
             if review_reason:
                 log_anomaly(raw_item, review_reason)
+                capture_outcome(raw_item, "held", review_reason)
                 continue
             # Confere modelo, capacidade, cor e condição antes da atualização.
             valid, reason, sanitized_item = validate_product(raw_item, atuais, allow_seminovo=True)
             if not valid or not sanitized_item:
+                capture_outcome(raw_item, "held", reason or "validacao_rejeitada")
                 continue
 
             item = sanitized_item
             if is_guardian_quarantined(item):
+                capture_outcome(item, "held", "quarentena_guardiao")
                 continue
             k = offer_key(item)
             if apple_reference.model_status(item["modelo"]) is False:
@@ -354,9 +372,11 @@ def upsert_parsed_products(new_items):
                     pending = {offer_key(r): r for r in pending_models()}
                 if k not in pending or item.get("hora", "") >= pending[k].get("hora", ""):
                     pending[k] = item
+                capture_outcome(item, "held", "modelo_sem_confirmacao")
                 continue
             # History sync and retries can arrive after a newer supplier list.
             if k in index_map and str(item.get("hora", "00:00:00")) < str(atuais[index_map[k]].get("hora", "00:00:00")):
+                capture_outcome(item, "superseded", "oferta_mais_recente_ja_ativa")
                 continue
             item["id"] = f"{int(time.time() * 1000)}_{random.randint(100, 999)}_{count}"
             if k in index_map:
@@ -365,6 +385,7 @@ def upsert_parsed_products(new_items):
                 index_map[k] = len(atuais)
                 atuais.append(item)
             count += 1
+            capture_outcome(item, "candidate")
 
         if pending is not None:
             atomic_json_write(REFERENCE_PENDING, list(pending.values()))
@@ -378,6 +399,22 @@ def upsert_parsed_products(new_items):
             atuais = atuais[-25000:]
 
         save_produtos(atuais)
+        final_catalog = {json.dumps(offer_key(row), ensure_ascii=False): row for row in atuais}
+        for outcome in capture_outcomes:
+            if outcome["status"] != "candidate":
+                continue
+            item = outcome["item"]
+            current = final_catalog.get(outcome["offerKey"])
+            current_timestamp = (current or {}).get("mensagemTimestamp", 0)
+            if current and (
+                    current_timestamp > item.get("mensagemTimestamp", 0) or
+                    (current_timestamp == item.get("mensagemTimestamp", 0) and
+                     current.get("preco") == item.get("preco"))):
+                outcome["status"] = "present"
+            else:
+                outcome["status"] = "missing"
+                outcome["reason"] = "nao_persistida_no_catalogo"
+        daily_review.record_capture_outcomes(BASE_DIR, capture_outcomes)
         return count
 
 
@@ -389,6 +426,7 @@ def apply_supplier_message(items, message):
             return 0
         if message.get("editKey"):
             origin = daily_review.message_origin(message)
+            daily_review.mark_capture_origin_superseded(BASE_DIR, origin, message["timestamp"])
             current = load_produtos()
             retained = [row for row in current if not (
                 origin and row.get("mensagemOrigem") == origin and
@@ -1047,10 +1085,12 @@ def cleanup_old_products_on_start():
 
 
 catalog_monitor = {"checked": None, "issues": {}, "examples": [], "offers": 0}
+capture_monitor = {"checked": None, "status": "AGUARDANDO", "issues": [], "examples": []}
 ROBOT_INTERVALS = {
     "colors": "3 min",
     "price": "5 min",
     "catalog": "5 min",
+    "capture": "5 min",
     "daily": "10 min",
     "coverage": "10 min",
 }
@@ -1058,6 +1098,7 @@ ROBOT_INTERVAL_SECONDS = {
     "colors": 180,
     "price": 300,
     "catalog": 300,
+    "capture": 300,
     "daily": 600,
     "coverage": 600,
 }
@@ -1091,7 +1132,7 @@ def record_robot_health(name, report=None, error=None):
         state["lastError"] = f"{type(error).__name__}: {error}" if error else None
         if error:
             state["status"] = "ERRO"
-        elif report and report.get("status") in ("ALERTA", "CRITICO"):
+        elif report and report.get("status") in ("ALERTA", "CRITICO", "REVISAR"):
             state["status"] = report["status"]
         elif report and report.get("issues"):
             state["status"] = "ALERTA"
@@ -1108,6 +1149,7 @@ def robot_dashboard_state():
         "colors": ("Guardião de cores + IA", last_color_audit, "analyzed", "validAfter"),
         "price": ("Vistoria de preços e catálogo", last_guardian_sweep, "analyzed", "validAfter"),
         "catalog": ("Monitor de integridade do catálogo", catalog_monitor, "offers", None),
+        "capture": ("Monitor de inclusão de ofertas", capture_monitor, None, None),
         "daily": ("Revisão e releitura de listas", {}, None, None),
         "coverage": ("Auditor de comunidades e cobertura", last_coverage_audit, "monitoredTotal", None),
     }
@@ -1118,7 +1160,7 @@ def robot_dashboard_state():
         if not status:
             if not report.get("checked"):
                 status = "AGUARDANDO"
-            elif report.get("status") in ("ALERTA", "CRITICO"):
+            elif report.get("status") in ("ALERTA", "CRITICO", "REVISAR"):
                 status = report["status"]
             elif report.get("issues"):
                 status = "ALERTA"
@@ -1134,6 +1176,17 @@ def robot_dashboard_state():
         elif key == "coverage":
             issues = report.get("issues") or []
             detail = " · ".join(issues) if issues else f"{report.get('monitoredTotal', 0)} canais monitorados; 0 alertas"
+        elif key == "capture":
+            detail = (
+                f"{report.get('persisted', 0)}/{report.get('acceptedCandidates', 0)} ofertas confirmadas no catálogo"
+                f" · {report.get('missing', 0)} ausentes"
+                f" · {report.get('held', 0)} retidas"
+                f" · {report.get('superseded', 0)} substituídas"
+            )
+            if report.get("queuedMessages"):
+                detail += f" · {report['queuedMessages']} mensagens na fila"
+            if report.get("reviewPendingMessages"):
+                detail += f" · {report['reviewPendingMessages']} fontes aguardam revisão"
         elif analyzed_key:
             detail = f"{report.get(analyzed_key, 0)} verificados"
             if valid_key:
@@ -1154,6 +1207,122 @@ def robot_dashboard_state():
             "detail": detail,
         }
     return result
+
+
+def audit_capture_completeness():
+    today_key = time.strftime("%Y-%m-%d")
+    today = get_today_str()
+    active_rows = [
+        row for row in load_produtos(only_today=False)
+        if row.get("data") == today and str(row.get("hora", "")) >= "06:00:00"
+    ]
+    outcomes = daily_review.load_capture_outcomes(BASE_DIR, today_key)
+    known = {(entry["origin"], entry["offerKey"]) for entry in outcomes}
+    baseline = []
+    for row in active_rows:
+        origin = row.get("mensagemOrigem")
+        if not origin:
+            continue
+        key = json.dumps(offer_key(row), ensure_ascii=False)
+        if (origin, key) not in known:
+            baseline.append({
+                "item": row,
+                "offerKey": key,
+                "status": "present",
+                "reason": "catalogo_atual",
+            })
+    daily_review.record_capture_outcomes(BASE_DIR, baseline)
+    if baseline:
+        outcomes = daily_review.load_capture_outcomes(BASE_DIR, today_key)
+    active = {json.dumps(offer_key(row), ensure_ascii=False): row for row in active_rows}
+    persisted = held = superseded = missing = accepted = 0
+    examples = []
+
+    for outcome in outcomes:
+        item = outcome["item"]
+        status = outcome["status"]
+        if status == "superseded":
+            superseded += 1
+            continue
+        if status == "held":
+            held += 1
+            continue
+        accepted += 1
+        current = active.get(outcome["offerKey"])
+        current_timestamp = (current or {}).get("mensagemTimestamp", 0)
+        current_price = (current or {}).get("preco")
+        same_revision = (
+            current and current_timestamp == outcome["timestamp"] and
+            current_price == item.get("preco")
+        )
+        if current and (current_timestamp > outcome["timestamp"] or same_revision):
+            persisted += 1
+        elif is_guardian_quarantined(item):
+            held += 1
+            accepted -= 1
+        else:
+            missing += 1
+            if len(examples) < 12:
+                examples.append(
+                    f"{item.get('modelo', 'Modelo não informado')} · "
+                    f"{item.get('fornecedor', 'Fornecedor não informado')} · "
+                    f"{item.get('cor', '-')} · R$ {item.get('preco', '-')}"
+                )
+
+    with closing(daily_review.database(BASE_DIR)) as db:
+        queued = db.execute(
+            "SELECT COUNT(*) FROM revisoes_ao_vivo WHERE dia=? AND concluida IS NULL",
+            (today_key,),
+        ).fetchone()[0]
+
+    review_pending = 0
+    review_path = Path(BASE_DIR) / "revisao_listas" / "ultima_revisao.json"
+    if review_path.exists():
+        review_report = json.loads(review_path.read_text(encoding="utf-8"))
+        if review_report.get("dia") == today_key:
+            review_pending = len({
+                str(pending[0])
+                for pending in review_report.get("pendencias", [])
+                if isinstance(pending, list) and pending
+            })
+
+    issues = []
+    if missing:
+        issues.append(f"{missing} ofertas confirmadas não aparecem no catálogo")
+    if queued:
+        issues.append(f"{queued} mensagens aguardam revisão ao vivo")
+    status = "ALERTA" if issues else ("REVISAR" if review_pending else "OK")
+    return {
+        "checked": time.strftime("%d/%m/%Y %H:%M:%S"),
+        "status": status,
+        "acceptedCandidates": accepted,
+        "persisted": persisted,
+        "held": held,
+        "superseded": superseded,
+        "missing": missing,
+        "queuedMessages": queued,
+        "reviewPendingMessages": review_pending,
+        "issues": issues,
+        "examples": examples,
+    }
+
+
+def capture_monitor_worker():
+    global capture_monitor
+    time.sleep(30)
+    while True:
+        record_robot_start("capture")
+        try:
+            report = audit_capture_completeness()
+            capture_monitor = report
+            record_robot_health("capture", report=report)
+            atomic_json_write(os.path.join(BASE_DIR, "monitor_capturas_interno.json"), report)
+            if report["issues"]:
+                add_panel_log(f"[MONITOR DE CAPTURA] ⚠️ {' | '.join(report['issues'])}")
+        except (OSError, sqlite3.Error, ValueError, TypeError, KeyError) as exc:
+            record_robot_health("capture", error=exc)
+            print(f"[MONITOR DE CAPTURA] Erro na conferência: {type(exc).__name__}: {exc}", flush=True)
+        time.sleep(ROBOT_INTERVAL_SECONDS["capture"])
 
 
 def audit_catalog(rows):
@@ -1645,6 +1814,7 @@ def main():
     reset_thread.start()
     cleanup_old_products_on_start()
     threading.Thread(target=catalog_monitor_worker, daemon=True).start()
+    threading.Thread(target=capture_monitor_worker, daemon=True).start()
     threading.Thread(target=guardian_sweep_worker, daemon=True).start()
     threading.Thread(target=color_guardian_worker, daemon=True).start()
     threading.Thread(target=coverage_guardian_worker, daemon=True).start()

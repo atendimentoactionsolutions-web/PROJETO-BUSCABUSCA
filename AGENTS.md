@@ -32,6 +32,7 @@ Este arquivo é carregado automaticamente em **todas as sessões** e auditorias 
 | **Guardião de Cores + IA** | `color_guardian.py` / `color_guardian_worker` | `3 min` (`180s`) | Bloqueia cores inexistentes por modelo, corrige pulseira vs caixa e aprende novos modelos Apple via Gemini (`gemini-3.5-flash`). |
 | **Vistoria Anti-Erros** | `price_guardian.py` / `guardian_sweep_worker` | `5 min` (`300s`) | Remove preços/modelos inválidos, move seminovos fora do lugar, limpa duplicatas e grava removidos na quarentena diária (`quarentena_guardiao.json`). |
 | **Monitor de Catálogo** | `painel.py` / `catalog_monitor_worker` | `5 min` (`300s`) | Acompanha retenções e integridade geral do catálogo. |
+| **Monitor de Inclusão** | `painel.py` / `capture_monitor_worker` | `5 min` (`300s`) | Compara ofertas confirmadas com o catálogo, alerta ausências e sinaliza fontes que ainda aguardam revisão. |
 | **Revisão / Atualização** | `daily_review.py` / `daily_review_worker` | `10 min` (`600s`) | Reprocessa listas do dia respeitando `quarentena_guardiao.json` para não ressuscitar erro já limpo. |
 | **Auditor de Cobertura** | `coverage_guardian.py` / `coverage_guardian_worker` | `10 min` (`600s`) | Confere 100% dos grupos/comunidades (`@g.us`), canais (`@newsletter`) e contatos privados, fila de captura e silêncio > 25 min (`08h–17h`). Recuperação `/api/scan-archived` com cooldown de `30 min`. |
 
@@ -71,6 +72,7 @@ Este arquivo é carregado automaticamente em **todas as sessões** e auditorias 
 16. **Auditoria de cobertura sem dados de grupos:** se o WhatsApp estiver `CONNECTED`, uma falha/ausência da lista de `/api/groups` nunca pode ser tratada como cobertura vazia e status `OK`; registrar pendência e acionar recuperação com cooldown.
 17. **Vitrine simplificada (27/11/2026):** não exibir resumo de quantidade de modelos/variações, campo de busca nem seletor de itens por página. Manter navegação por categorias e botão de carregamento progressivo.
 18. **Central administrativa focada e robôs observáveis:** manter `/admin` voltado a contas, captura WhatsApp, grupos/comunidades, cobertura e estado dos robôs. Não carregar listas/históricos de mensagens no estado do painel; exibir falhas de consulta e execução explicitamente. Preservar os intervalos atuais dos robôs (3/5/10 min).
+19. **Completude da captura:** `resultados_captura` no banco runtime `revisao_listas/mensagens.sqlite3` registra para cada oferta de origem se foi persistida, retida por validação/quarentena, substituída por edição ou ficou ausente do catálogo. O monitor de inclusão alerta as ausentes e mensagens ainda na fila; fontes pendentes de revisão e retenções são exibidas separadamente e nunca devem ser reinseridas sem validação. Para imagens, executar os dois modos OCR, escolher pelo número de ofertas que passam validação e exigir `_is_clear_ocr_text`; associar cor ao bloco/preço da variante na evidência. Manter a correção `BRGND` → `BURGUNDY`.
 
 ---
 

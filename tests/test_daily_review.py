@@ -1,6 +1,8 @@
+import subprocess
 import tempfile
 import time
 import unittest
+from contextlib import closing
 from unittest.mock import patch
 import daily_review
 import painel
@@ -68,7 +70,7 @@ class ReviewCycleTests(unittest.TestCase):
         model = "Mac mini M4 16/512GB"
         quote = model + " R$ 6.100"
         cases = [
-            (model, "R$ 6.100", [], "linha_com_preco_a_conferir"),
+            (model, "R$ 6.100", [], "imagem_ocr_confuso"),
             (quote, "", ["legenda"], "imagem_sem_texto_legivel"),
             ("", quote, ["imagem"], None),
             (quote, quote, ["imagem"], None),
@@ -88,6 +90,36 @@ class ReviewCycleTests(unittest.TestCase):
                 if issue:
                     self.assertIn((issue, "imagem"), [(p[3], p[4]) for p in report["pendencias"]])
 
+    def test_image_ocr_chooses_the_mode_with_more_validated_offers(self):
+        psm6 = ("IPHONE 17 PRO MAX (256 GB)\nCOSMIC ORANGE {7.350,00}\n"
+                "DEEP BLUE & 17.550,00)\nSILVER 8 17790,00)")
+        psm11 = ("IPHONE 17 PRO MAX (256 GB)\nCOSMIC ORANGE\n& {7.350,00}\n"
+                 "@DEEP BLUE\n& {7.550,00}\nSILVER\n8 {7.790,00}")
+        results = [
+            subprocess.CompletedProcess([], 0, psm6.encode(), b""),
+            subprocess.CompletedProcess([], 0, psm11.encode(), b""),
+        ]
+        with tempfile.TemporaryDirectory() as folder:
+            with closing(daily_review.database(folder)) as db, patch.object(
+                    daily_review.subprocess, "run", side_effect=results):
+                now = time.localtime()
+                timestamp = time.mktime((*now[:3], 10, 0, 0, *now[6:]))
+                text = daily_review.image_text(db, "2026-11-27", "message", "YQ==", timestamp)
+        self.assertEqual(text, psm11)
+
+    def test_image_ocr_unclear_text_is_held_without_parsing(self):
+        timestamp = time.time()
+        msg = {"timestamp": timestamp, "supplierPhone": "123", "supplierName": "Loja",
+               "imageBase64": "image", "hasImage": True}
+        with tempfile.TemporaryDirectory() as root:
+            daily_review.save_message(root, msg)
+            unclear = "IPHONE 17 PRO MAX ####@@ R$ 8.200 !!!"
+            with patch.object(daily_review, "image_text", return_value=unclear):
+                report = daily_review.run(root, painel.offer_key, lambda _: 0)
+            self.assertEqual(report["ofertas_confirmadas"], 0)
+            self.assertIn(("imagem_ocr_confuso", "imagem"),
+                          [(pending[3], pending[4]) for pending in report["pendencias"]])
+
     def test_color_siblings_with_shared_or_individual_prices(self):
         for header, variants, target, price, expected in [
             ("iPhone 12 128GB $ 1500", ["Preto", "Azul"], "Azul", 1500, 0),
@@ -96,6 +128,14 @@ class ReviewCycleTests(unittest.TestCase):
         ]:
             row = {"contextoOriginal": f"Novo\n{header}\n{target}", "preco": price}
             self.assertEqual(daily_review.evidence_block(row, {header: [0]}, [header, *variants]), expected)
+
+    def test_price_evidence_must_match_the_parsed_color_variant(self):
+        lines = ["IPHONE 18 PRO MAX 256GB", "GLACIER R$ 8.750", "BRGND R$ 8.750"]
+        row = {"contextoOriginal": "Novo\nIPHONE 18 PRO MAX 256GB\nBRGND R$ 8.750",
+               "modelo": "IPHONE 18 PRO MAX", "cor": "BURGUNDY", "preco": 8750}
+        self.assertEqual(daily_review.evidence_block(row, {lines[0]: [0]}, lines), 2)
+        wrong_variant = dict(row, contextoOriginal="Novo\nIPHONE 18 PRO MAX 256GB\nGLACIER R$ 8.750")
+        self.assertIsNone(daily_review.evidence_block(wrong_variant, {lines[0]: [0]}, lines))
 
     def test_price_from_another_block_cannot_confirm_offer(self):
         row = {"contextoOriginal": "Novo\nMac mini M4\nR$ 6100", "preco": 6100}

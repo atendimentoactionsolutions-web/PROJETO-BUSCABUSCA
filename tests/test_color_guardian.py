@@ -7,6 +7,9 @@ from price_guardian import validate_product
 
 
 class ColorGuardianTests(unittest.TestCase):
+    def test_brgnd_typo_resolves_to_burgundy(self):
+        self.assertEqual(extract_color("BRGND R$ 8.750"), "BURGUNDY")
+
     def test_extract_color_ignores_watch_band_and_reads_titanium_case(self):
         self.assertEqual(extract_color("BLACK TI BURGUNDY ALP LOOP $5.350,00"), "PRETO")
         self.assertEqual(extract_color("CAIXA PRETA (BURGUNDY TRAIL LOOP M/L) R$5.300,00"), "PRETO")
@@ -219,7 +222,7 @@ class ColorGuardianTests(unittest.TestCase):
 
         for row in valid_jnb:
             self.assertEqual(row["condicao"], "Seminovo")
-            ev_idx = daily_review.evidence_block(row, jnb_pos, jnb_lines)
+            ev_idx = daily_review.evidence_block(row, jnb_pos, jnb_lines, jnb_msg.splitlines())
             self.assertIsNotNone(ev_idx, f"Evidence failed for {row}")
 
         self.assertEqual(
@@ -238,7 +241,7 @@ class ColorGuardianTests(unittest.TestCase):
         for row in cz_rows:
             ok, reason, _ = validate_product(dict(row), allow_seminovo=True, log_anomalies=False)
             self.assertTrue(ok, f"CELL ZONE row rejected: {row} -> {reason}")
-            ev_idx = daily_review.evidence_block(row, cz_pos, cz_lines)
+            ev_idx = daily_review.evidence_block(row, cz_pos, cz_lines, cell_zone_msg.splitlines())
             self.assertIsNotNone(ev_idx, f"Evidence failed for {row}")
 
 

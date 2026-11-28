@@ -3,6 +3,7 @@ import json
 import os
 import tempfile
 import threading
+import time
 import unittest
 from unittest.mock import patch
 import painel
@@ -72,6 +73,21 @@ class CatalogTests(unittest.TestCase):
         self.assertEqual(report["issues"]["Oferta duplicada do fornecedor"], 1)
         self.assertEqual(report["issues"]["PRECO_DIVERGE_DA_MENSAGEM"], 2)
         self.assertEqual(row["preco"], 5000)
+
+    def test_capture_monitor_detects_confirmed_offer_missing_from_catalog(self):
+        today = time.localtime()
+        timestamp = time.mktime((*today[:3], 10, 0, 0, *today[6:]))
+        row = dict(self.product(), mensagemOrigem='["grupo@g.us","msg-1"]',
+                   mensagemTimestamp=timestamp, mensagemEditada=False)
+        with patch.object(painel, "BASE_DIR", self.folder.name):
+            self.assertEqual(painel.upsert_parsed_products([row]), 1)
+            report = painel.audit_capture_completeness()
+            self.assertEqual((report["acceptedCandidates"], report["persisted"], report["missing"]), (1, 1, 0))
+
+            painel.save_produtos([])
+            report = painel.audit_capture_completeness()
+        self.assertEqual(report["missing"], 1)
+        self.assertEqual(report["status"], "ALERTA")
 
     def test_ingestion_preserves_unreadable_catalog(self):
         with open(self.path, "w") as stream:
